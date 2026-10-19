@@ -52,6 +52,7 @@ npm run lint     # lint with oxlint
 ## Project layout
 
 - `src/` contains the app source. The domain logic (`DegreePlan`, `DegreeRequirement`, `Course`) lives here as plain TypeScript, kept apart from React so it can be unit tested.
+- `src/data/` holds the preloaded course and requirement data for the B.S. in Computer Science (College of Arts and Sciences, Software emphasis), taken from the [2026-27 SCU Undergraduate Bulletin](https://www.scu.edu/appdata/pub/bulletin/undergraduate/2026-27/chapter-3-college-of-arts-and-sciences/mathematics-and-computer-science.html). Required 1-unit labs (e.g. CSEN 20L) are folded into their course's units.
 - `src/App.tsx` defines the routes: `/` (degree progress), `/plan` (4-year plan), `/courses` (course lookup), `/courses/:code` (one course), and `/setup` (choose an emphasis and record completed courses).
 - `tests/` contains the unit tests. Any file ending in `.test.ts` runs automatically.
 - `.github/workflows/ci.yml` runs on every push and pull request. It installs dependencies, builds, and runs the tests.

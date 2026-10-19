@@ -18,3 +18,33 @@ nav {
 main {
   padding: 1rem;
 }
+
+.quarters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.quarter {
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.quarter h3 {
+  margin-top: 0;
+}
+
+.quarter select {
+  max-width: 100%;
+}
+
+.warning {
+  color: #b45309;
+  font-size: 0.9em;
+}
+
+.error {
+  color: #dc2626;
+  font-size: 0.9em;
+}

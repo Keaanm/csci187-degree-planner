@@ -1,12 +1,9 @@
 import { BrowserRouter, NavLink, Route, Routes, useParams } from 'react-router';
+import PlanPage from './pages/PlanPage';
 
 // Placeholder pages. Replace each with a real component in src/pages/ as it gets built.
 function ProgressPage() {
   return <h1>Degree Progress</h1>;
-}
-
-function PlanPage() {
-  return <h1>4-Year Plan</h1>;
 }
 
 function CoursesPage() {

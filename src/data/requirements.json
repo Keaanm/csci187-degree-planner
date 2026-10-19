@@ -1,0 +1,16 @@
+[
+  { "description": "Lower-division computer science",
+    "courses": ["CSCI 10", "CSCI 60", "CSCI 61", "CSCI 62"] },
+  { "description": "Mathematics",
+    "courses": ["MATH 11", "MATH 12", "MATH 13", "MATH 14", "MATH 51", "MATH 53", "MATH 122"] },
+  { "description": "Natural science (one course)",
+    "courses": ["PHYS 31", "CHEM 11", "ENVS 21", "ENVS 23"], "count": 1 },
+  { "description": "Embedded systems and logic design",
+    "courses": ["CSEN 20", "ECEN 21"] },
+  { "description": "Upper-division computer science core",
+    "courses": ["CSCI 161", "CSCI 163", "CSEN 177"] },
+  { "description": "Software emphasis: required courses",
+    "courses": ["CSCI 169", "CSCI 187", "CSEN 146"] },
+  { "description": "Software emphasis: electives (two courses)",
+    "courses": ["CSCI 168", "CSCI 180", "CSCI 183", "CSEN 161", "CSEN 178"], "count": 2 }
+]
