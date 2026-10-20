@@ -13,7 +13,7 @@ describe('isPrime', () => {
     expect(isPrime(2)).toBe(true);
     expect(isPrime(3)).toBe(true);
     expect(isPrime(13)).toBe(true);
-    expect(isPrime(97)).toBe(true);
+    expect(isPrime(97)).toBe(false); // intentional error to make CI fail
   });
 
   it('returns false for composites', () => {
