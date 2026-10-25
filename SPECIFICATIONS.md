@@ -23,6 +23,5 @@ These specifications cover the walking skeleton (the 4-year plan). The logic liv
 4. **When the user clicks a button, the plan is saved.**
    Clicking "Save plan" saves the plan in the browser (localStorage). The page shows whether there are unsaved changes. When the student comes back, the saved plan is loaded. If nothing is saved, or the saved data can't be read, the student starts with an empty plan. Saved courses that are no longer offered are skipped.
 
-## Requirement status
-
-The page lists each degree requirement and shows whether the planned courses satisfy it. If not, it shows what is still needed. Some requirements need every listed course, and others need a set number of them (for example, 2 of 5 electives).
+5. **Show which degree requirements the planned courses satisfy.**
+   The page lists each degree requirement and marks whether the planned courses satisfy it. If not, it shows what is still needed. Some requirements need every listed course, and others need a set number of them (for example, 2 of 5 electives).
