@@ -4,15 +4,17 @@ CSCI 187 Group 6: Darren Hu, Henry Packer, Keaan Mirchandani, William Tran-Nguye
 
 A course planning and degree progress tool for Santa Clara University Computer Science undergraduates. Today, students plan by hand from PDF requirement sheets, Workday, and their own spreadsheets. They trace prerequisites themselves and check off requirements manually. With this tool, students can build a 4-year plan and see their progress toward their degree requirements.
 
-The MVP covers the Computer Science major (with its emphases), the CS minor, and the University Core. Our team preloads the requirement data. There are no accounts. The plan is saved in the browser with localStorage.
+The MVP covers the Computer Science major. Our team preloads the course and requirement data, starting with the Software emphasis. There are no accounts. The plan is saved in the browser with localStorage.
+
+The full requirements are in [REQUIREMENTS.md](REQUIREMENTS.md), and the functional specifications are in [SPECIFICATIONS.md](SPECIFICATIONS.md).
 
 ## User requirements (MVP)
 
 The user should be able to:
 
 ### Tracking progress
-1. Select their Computer Science emphasis
-2. Record which courses they have completed
+1. Record which courses they have completed
+2. Select their Computer Science emphasis
 3. See which degree requirements they have completed and which remain
 4. See how many units they have completed and how many remain
 
@@ -28,7 +30,7 @@ The user should be able to:
 4. Save their 4-year plan so it is still there when they come back
 
 ### Later (not in the MVP)
-Accounts (student and advisor), transfer credit, courses that count toward multiple requirements, the quarters a course is usually offered, professor ratings, all quarter schedule features (upcoming quarter search, time filters, conflict warnings, comparing schedules, backup classes, alternative courses), starting from the department's sample plan, a check for graduating by the expected quarter, replanning when a course becomes unavailable, study abroad paths, PDF export, and advisor features (sharing, viewing student plans, recommendations).
+Requirement data for the other CS emphases, the CS minor, the University Core, other majors, accounts (student and advisor), transfer credit, courses that count toward multiple requirements, the quarters a course is usually offered, professor ratings, all quarter schedule features (upcoming quarter search, time filters, conflict warnings, comparing schedules, backup classes, alternative courses), starting from the department's sample plan, a check for graduating by the expected quarter, replanning when a course becomes unavailable, study abroad paths, PDF export, and advisor features (sharing, viewing student plans, recommendations).
 
 ## Setup
 
