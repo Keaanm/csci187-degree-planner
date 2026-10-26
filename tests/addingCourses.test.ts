@@ -20,13 +20,13 @@ describe('DegreePlan.addCourse and removeCourse', () => {
   });
 
   it('throws for a course that is not offered', () => {
-    expect(() => new DegreePlan().addCourse(0, 'CSCI 999')).toThrow();
+    expect(() => new DegreePlan().addCourse(0, 'CSCI 999')).toThrow('is not an offered course');
   });
 
   it('throws when the course is already in the plan, even in another quarter', () => {
     const plan = new DegreePlan().addCourse(0, 'CSCI 10');
-    expect(() => plan.addCourse(0, 'CSCI 10')).toThrow();
-    expect(() => plan.addCourse(5, 'CSCI 10')).toThrow();
+    expect(() => plan.addCourse(0, 'CSCI 10')).toThrow('is already in the plan');
+    expect(() => plan.addCourse(5, 'CSCI 10')).toThrow('is already in the plan');
   });
 
   it('allows exactly 18 units in a quarter', () => {
@@ -42,7 +42,7 @@ describe('DegreePlan.addCourse and removeCourse', () => {
   it('throws when a course would put the quarter over 18 units', () => {
     // CSCI 10 (5) + CSCI 60 (5) + CSCI 161 (5) = 15 units; adding MATH 11 (4) would make 19.
     const plan = new DegreePlan().addCourse(0, 'CSCI 10').addCourse(0, 'CSCI 60').addCourse(0, 'CSCI 161');
-    expect(() => plan.addCourse(0, 'MATH 11')).toThrow();
+    expect(() => plan.addCourse(0, 'MATH 11')).toThrow("can't have more than 18 units");
     expect(plan.addCourse(1, 'MATH 11').hasCourse('MATH 11')).toBe(true);
   });
 
