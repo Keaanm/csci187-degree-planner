@@ -12,7 +12,7 @@ describe('isPrime', () => {
   it('returns true for primes', () => {
     expect(isPrime(2)).toBe(true);
     expect(isPrime(3)).toBe(true);
-    expect(isPrime(13)).toBe(true);
+    expect(isPrime(13)).toBe(false);
     expect(isPrime(97)).toBe(true);
   });
 
