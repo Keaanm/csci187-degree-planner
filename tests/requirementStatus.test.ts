@@ -65,4 +65,25 @@ describe('DegreeRequirement and DegreePlan.requirementStatus', () => {
         expect(naturalScience?.satisfied).toBe(true);
         expect(naturalScience?.stillNeeded).toBe(0);
     });
+
+
+    it('does not satisfy a requirement when only some of its courses are taken', () => {
+        const requirement = new DegreeRequirement('Core courses', ['CSCI 10', 'CSCI 60', 'CSCI 61']);
+
+        expect(requirement.isSatisfiedBy(['CSCI 10'])).toBe(false);
+    });
+
+    it('does not satisfy a choose-two requirement with only one listed course taken', () => {
+        const requirement = new DegreeRequirement('Electives', ['CSCI 10', 'CSCI 60', 'CSCI 61'], 2);
+
+        expect(requirement.isSatisfiedBy(['CSCI 10'])).toBe(false);
+        expect(requirement.stillNeeded(['CSCI 10'])).toBe(1);
+    });
+
+    it('ignores courses that are not part of the requirement', () => {
+        const requirement = new DegreeRequirement('Core courses', ['CSCI 10', 'CSCI 60']);
+
+        expect(requirement.stillNeeded(['MATH 11', 'CHEM 11'])).toBe(2);
+        expect(requirement.isSatisfiedBy(['MATH 11', 'CHEM 11'])).toBe(false);
+    });
 });
