@@ -8,9 +8,8 @@ The user should be able to:
 
 ### Tracking progress
 1. Record which courses they have completed
-2. Select their Computer Science emphasis
-3. See which degree requirements they have completed and which remain
-4. See how many units they have completed and how many remain
+2. See which degree requirements they have completed and which remain
+3. See how many units they have completed and how many remain
 
 ### Finding courses
 1. Look up individual courses
@@ -34,4 +33,4 @@ The walking skeleton covers the "Building a 4-year plan" requirements, using a p
 
 ## Later (not in the MVP)
 
-Requirement data for the other CS emphases, the CS minor, the University Core, other majors, accounts (student and advisor), transfer credit, courses that count toward multiple requirements, the quarters a course is usually offered, professor ratings, all quarter schedule features (upcoming quarter search, time filters, conflict warnings, comparing schedules, backup classes, alternative courses), starting from the department's sample plan, a check for graduating by the expected quarter, replanning when a course becomes unavailable, study abroad paths, PDF export, and advisor features (sharing, viewing student plans, recommendations).
+Selecting an emphasis and requirement data for the other CS emphases, the CS minor, the University Core, other majors, accounts (student and advisor), transfer credit, courses that count toward multiple requirements, the quarters a course is usually offered, professor ratings, all quarter schedule features (upcoming quarter search, time filters, conflict warnings, comparing schedules, backup classes, alternative courses), starting from the department's sample plan, a check for graduating by the expected quarter, replanning when a course becomes unavailable, study abroad paths, PDF export, and advisor features (sharing, viewing student plans, recommendations).
