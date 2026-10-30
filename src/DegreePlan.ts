@@ -6,6 +6,7 @@ export const YEARS = 4;
 export const TERMS = ['Fall', 'Winter', 'Spring'] as const;
 export const QUARTER_COUNT = YEARS * TERMS.length;
 export const MAX_UNITS_PER_QUARTER = 18;
+export const UNITS_TO_GRADUATE = 175;
 
 // Label for a quarter index, e.g. 0 -> "Year 1 Fall", 4 -> "Year 2 Winter".
 export function quarterLabel(quarter: number): string {
@@ -27,13 +28,24 @@ export interface RequirementStatus {
   missing: string[];
 }
 
-// A student's 4-year plan: the courses planned in each quarter.
+export type CourseStatus = 'planned' | 'completed';
+
+// One course in the plan, as sent to and from the API.
+export interface PlanCourse {
+  code: string;
+  quarter: number;
+  status: CourseStatus;
+}
+
+// A student's 4-year plan: the courses in each quarter, and which of them are completed.
 // Immutable: methods that change the plan return a new DegreePlan.
 export class DegreePlan {
   readonly quarters: readonly (readonly Course[])[];
+  readonly completed: ReadonlySet<string>;
 
-  constructor(quarters?: readonly (readonly Course[])[]) {
+  constructor(quarters?: readonly (readonly Course[])[], completed: ReadonlySet<string> = new Set()) {
     this.quarters = quarters ?? Array.from({ length: QUARTER_COUNT }, () => []);
+    this.completed = completed;
   }
 
   coursesIn(quarter: number): readonly Course[] {
@@ -64,7 +76,24 @@ export class DegreePlan {
 
   removeCourse(quarter: number, code: string): DegreePlan {
     this.checkQuarter(quarter);
-    return this.withQuarter(quarter, this.quarters[quarter].filter((c) => c.code !== code));
+    return this.markPlanned(code).withQuarter(quarter, this.quarters[quarter].filter((c) => c.code !== code));
+  }
+
+  isCompleted(code: string): boolean {
+    return this.completed.has(code);
+  }
+
+  markCompleted(code: string): DegreePlan {
+    if (!this.hasCourse(code)) {
+      throw new Error(`${code} is not in the plan`);
+    }
+    return new DegreePlan(this.quarters, new Set([...this.completed, code]));
+  }
+
+  markPlanned(code: string): DegreePlan {
+    const completed = new Set(this.completed);
+    completed.delete(code);
+    return new DegreePlan(this.quarters, completed);
   }
 
   unitsIn(quarter: number): number {
@@ -73,6 +102,14 @@ export class DegreePlan {
 
   totalUnits(): number {
     return this.quarters.reduce((sum, _, i) => sum + this.unitsIn(i), 0);
+  }
+
+  completedUnits(): number {
+    return this.quarters.flat().filter((c) => this.isCompleted(c.code)).reduce((sum, c) => sum + c.units, 0);
+  }
+
+  remainingUnits(): number {
+    return Math.max(0, UNITS_TO_GRADUATE - this.completedUnits());
   }
 
   // Courses placed before (or in the same quarter as) one of their prerequisites,
@@ -90,16 +127,40 @@ export class DegreePlan {
     return warnings;
   }
 
+  // Counts planned and completed courses.
   requirementStatus(requirements: readonly DegreeRequirement[]): RequirementStatus[] {
-    const planned = this.courseCodes();
-    return requirements.map((requirement) => {
-      const stillNeeded = requirement.stillNeeded(planned);
-      return { requirement, satisfied: stillNeeded === 0, stillNeeded, missing: requirement.missingCourses(planned) };
-    });
+    return statusFor(requirements, this.courseCodes());
+  }
+
+  completedRequirementStatus(requirements: readonly DegreeRequirement[]): RequirementStatus[] {
+    return statusFor(requirements, this.completedCodes());
   }
 
   courseCodes(): string[] {
     return this.quarters.flatMap((q) => q.map((c) => c.code));
+  }
+
+  completedCodes(): string[] {
+    return this.courseCodes().filter((code) => this.isCompleted(code));
+  }
+
+  toRows(): PlanCourse[] {
+    return this.quarters.flatMap((courses, quarter) =>
+      courses.map((c) => ({ code: c.code, quarter, status: this.isCompleted(c.code) ? 'completed' : 'planned' })),
+    );
+  }
+
+  static fromRows(rows: readonly PlanCourse[]): DegreePlan {
+    let plan = new DegreePlan();
+    for (const row of rows) {
+      try {
+        plan = plan.addCourse(row.quarter, row.code);
+        if (row.status === 'completed') plan = plan.markCompleted(row.code);
+      } catch {
+        // Skip rows that are no longer valid, like fromJSON does.
+      }
+    }
+    return plan;
   }
 
   // Course codes per quarter, for saving.
@@ -126,7 +187,7 @@ export class DegreePlan {
   }
 
   private withQuarter(quarter: number, courses: Course[]): DegreePlan {
-    return new DegreePlan(this.quarters.map((q, i) => (i === quarter ? courses : q)));
+    return new DegreePlan(this.quarters.map((q, i) => (i === quarter ? courses : q)), this.completed);
   }
 
   private checkQuarter(quarter: number): void {
@@ -134,4 +195,11 @@ export class DegreePlan {
       throw new RangeError(`Quarter must be an integer from 0 to ${QUARTER_COUNT - 1}`);
     }
   }
+}
+
+function statusFor(requirements: readonly DegreeRequirement[], codes: string[]): RequirementStatus[] {
+  return requirements.map((requirement) => {
+    const stillNeeded = requirement.stillNeeded(codes);
+    return { requirement, satisfied: stillNeeded === 0, stillNeeded, missing: requirement.missingCourses(codes) };
+  });
 }
