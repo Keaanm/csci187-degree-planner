@@ -4,8 +4,7 @@ import type { DegreePlan } from '@/DegreePlan';
 import { PlanContext } from '@/PlanContext';
 import { useSavePlan, useSavedPlan } from '@/queries';
 
-// Shares the plan being edited with every page. Edits stay in memory as a draft
-// until the student clicks "Save plan".
+// Edits stay in a draft until the student saves.
 export default function PlanProvider({ children }: { children: ReactNode }) {
   const { plan: savedPlan, lastSaved } = useSavedPlan();
   const [draft, setDraft] = useState<DegreePlan | null>(null);
@@ -13,7 +12,6 @@ export default function PlanProvider({ children }: { children: ReactNode }) {
   const plan = draft ?? savedPlan;
   const saved = draft === null;
 
-  // Ask before closing the tab with unsaved changes.
   useEffect(() => {
     if (saved) return;
     const warn = (e: BeforeUnloadEvent) => e.preventDefault();
@@ -22,7 +20,7 @@ export default function PlanProvider({ children }: { children: ReactNode }) {
   }, [saved]);
 
   function save() {
-    // Keep the draft if it changed while the save was in progress.
+    // Keep edits made while the save was in flight.
     savePlan.mutate(plan, { onSuccess: (_, savedNow) => setDraft((d) => (d === savedNow ? null : d)) });
   }
 

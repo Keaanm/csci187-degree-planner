@@ -1,7 +1,6 @@
 import { NavLink } from 'react-router';
 import { cn } from '@/lib/utils';
 
-// A link in the top navigation, bold when its page is open.
 export default function NavItem({ to, children }: { to: string; children: string }) {
   return (
     <NavLink

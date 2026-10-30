@@ -3,8 +3,7 @@ import { DegreePlan } from './DegreePlan';
 import type { PlanCourse } from './DegreePlan';
 import { DegreeRequirement } from './DegreeRequirement';
 
-// Talks to the backend. The routes and JSON shapes are described in API.md.
-// There are no accounts in the MVP, so the app always uses plan 1.
+// Routes and JSON shapes are in API.md. There are no accounts, so there's only plan 1.
 export const PLAN_ID = 1;
 
 type Fetch = typeof fetch;
@@ -45,7 +44,7 @@ export async function fetchRequirements(fetchFn: Fetch = fetch): Promise<DegreeR
   return requirements.map((r) => new DegreeRequirement(r.description, r.courses, r.count));
 }
 
-// Loads a saved plan. A plan that hasn't been saved yet (404) loads as an empty plan.
+// 404 means the plan was never saved.
 export async function fetchPlan(planId: number = PLAN_ID, fetchFn: Fetch = fetch): Promise<LoadedPlan> {
   const response = await fetchFn(`/api/plans/${planId}`);
   if (response.status === 404) return { plan: new DegreePlan(), lastSaved: null };
@@ -53,7 +52,7 @@ export async function fetchPlan(planId: number = PLAN_ID, fetchFn: Fetch = fetch
   return { plan: DegreePlan.fromRows(saved.courses), lastSaved: saved.lastSaved };
 }
 
-// Saves the whole plan, replacing what was saved before. Returns the new last-saved time.
+// Replaces everything saved for the plan.
 export async function savePlan(plan: DegreePlan, planId: number = PLAN_ID, fetchFn: Fetch = fetch): Promise<string> {
   const response = await fetchFn(`/api/plans/${planId}`, {
     method: 'PUT',

@@ -1,5 +1,5 @@
 // Keaan Mirchandani
-// Tests the frontend's API client against a fake fetch, so it runs without the backend.
+// Tests the API client with a fake fetch, so no backend is needed.
 import { describe, expect, it } from 'vitest';
 import { fetchCourses, fetchPlan, fetchRequirements, savePlan } from '../src/api';
 import { DegreePlan } from '../src/DegreePlan';
@@ -9,7 +9,6 @@ interface Call {
   init?: RequestInit;
 }
 
-// A fetch that records each call and answers with the given status and JSON body.
 function fakeFetch(status: number, body: unknown = null) {
   const calls: Call[] = [];
   const fetchFn = (async (url: string, init?: RequestInit) => {

@@ -7,7 +7,6 @@ import type { PrerequisiteWarning } from '@/DegreePlan';
 import { usePlan } from '@/PlanContext';
 import { useCourses } from '@/queries';
 
-// One quarter of the plan: its courses, unit total, and a searchable picker to add a course.
 export default function QuarterCard({ quarter, warnings }: { quarter: number; warnings: PrerequisiteWarning[] }) {
   const courses = useCourses();
   const { plan, changePlan } = usePlan();
@@ -43,7 +42,7 @@ export default function QuarterCard({ quarter, warnings }: { quarter: number; wa
             />
           ))}
         </ul>
-        {/* mt-auto keeps the picker at the bottom so it lines up across quarters. */}
+        {/* mt-auto lines the pickers up across a row. */}
         <div className="mt-auto space-y-2">
           <CoursePicker courses={available} label={`Add a course to ${label}`} onPick={add} />
           {error && (

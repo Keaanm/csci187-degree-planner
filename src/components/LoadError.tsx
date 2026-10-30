@@ -2,7 +2,6 @@ import { getErrorMessage } from 'react-error-boundary';
 import type { FallbackProps } from 'react-error-boundary';
 import { Button } from '@/components/ui/button';
 
-// Shown when the courses, requirements or saved plan can't be loaded from the server.
 export default function LoadError({ error, resetErrorBoundary }: FallbackProps) {
   return (
     <div className="mx-auto max-w-6xl space-y-3 px-4 py-6" role="alert">

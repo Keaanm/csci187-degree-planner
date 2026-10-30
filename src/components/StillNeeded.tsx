@@ -1,6 +1,5 @@
 import CourseLink from '@/components/CourseLink';
 
-// "Still need ..." text for an unmet requirement, linking each missing course.
 export default function StillNeeded({ stillNeeded, missing }: { stillNeeded: number; missing: string[] }) {
   return (
     <>

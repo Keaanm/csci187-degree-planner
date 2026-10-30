@@ -7,7 +7,6 @@ import { quarterLabel } from '@/DegreePlan';
 import { usePlan } from '@/PlanContext';
 import { useCourses, useRequirements } from '@/queries';
 
-// Course detail: description, prerequisites, and the requirements the course satisfies.
 export default function CoursePage() {
   const { code = '' } = useParams();
   const courses = useCourses();

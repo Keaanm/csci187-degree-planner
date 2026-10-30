@@ -6,7 +6,6 @@ import { Input } from '@/components/ui/input';
 import { usePlan } from '@/PlanContext';
 import { useCourses } from '@/queries';
 
-// Course lookup: search the offered courses by code, title or description.
 export default function CoursesPage() {
   const courses = useCourses();
   const { plan } = usePlan();

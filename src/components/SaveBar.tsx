@@ -1,7 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { usePlan } from '@/PlanContext';
 
-// "Save plan" button and save status, shown on every page.
 export default function SaveBar() {
   const { saved, lastSaved, save, saving, saveError } = usePlan();
   return (

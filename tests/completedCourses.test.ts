@@ -1,6 +1,5 @@
 // Keaan Mirchandani
-// Tests recording completed courses: marking them, completed/remaining units, and
-// requirement status that counts only completed courses.
+// Tests completed courses: marking them, units, and requirement status.
 import { describe, expect, it } from 'vitest';
 import { DegreePlan, UNITS_TO_GRADUATE } from '../src/DegreePlan';
 import { DegreeRequirement } from '../src/DegreeRequirement';

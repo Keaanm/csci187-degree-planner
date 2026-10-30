@@ -6,7 +6,6 @@ import type { Course } from '@/Course';
 import type { PrerequisiteWarning } from '@/DegreePlan';
 import { usePlan } from '@/PlanContext';
 
-// One course in a quarter: remove button, "Completed" checkbox and any prerequisite warning.
 export default function PlannedCourse({ course, quarter, warning }: {
   course: Course;
   quarter: number;

@@ -7,7 +7,7 @@ import { UNITS_TO_GRADUATE, quarterLabel } from '@/DegreePlan';
 import { usePlan } from '@/PlanContext';
 import { useRequirements } from '@/queries';
 
-// Degree progress, counting only courses marked completed.
+// Counts only completed courses.
 export default function ProgressPage() {
   const requirements = useRequirements();
   const { plan } = usePlan();

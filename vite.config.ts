@@ -10,7 +10,7 @@ export default defineConfig({
     alias: { '@': path.resolve(import.meta.dirname, './src') },
   },
   server: {
-    // The backend runs on port 3001 (see API.md).
+    // Backend port, see API.md.
     proxy: { '/api': 'http://localhost:3001' },
   },
 })

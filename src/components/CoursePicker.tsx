@@ -5,7 +5,6 @@ import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { Course } from '@/Course';
 
-// "Add course" button that opens a searchable list. Picking a course calls onPick.
 export default function CoursePicker({ courses, label, onPick }: {
   courses: Course[];
   label: string;
@@ -14,7 +13,6 @@ export default function CoursePicker({ courses, label, onPick }: {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
 
-  // Start with an empty search each time the list opens.
   function changeOpen(next: boolean) {
     setOpen(next);
     setSearch('');
@@ -33,7 +31,7 @@ export default function CoursePicker({ courses, label, onPick }: {
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-96 p-0" align="start">
-        {/* Match the search as written, so "CSCI 10" doesn't also match "CSCI 180". */}
+        {/* Substring match, so "CSCI 10" doesn't match "CSCI 180". */}
         <Command filter={(value, term) => (value.toLowerCase().includes(term.trim().toLowerCase()) ? 1 : 0)}>
           <CommandInput placeholder="Search by code or title…" value={search} onValueChange={setSearch} />
           <CommandList>

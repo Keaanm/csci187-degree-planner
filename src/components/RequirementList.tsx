@@ -2,7 +2,6 @@ import { CircleCheck, Circle } from 'lucide-react';
 import StillNeeded from '@/components/StillNeeded';
 import type { RequirementStatus } from '@/DegreePlan';
 
-// Lists degree requirements with a check mark when met, or what is still needed.
 export default function RequirementList({ statuses, metBy }: { statuses: RequirementStatus[]; metBy: string }) {
   return (
     <ul className="space-y-3">

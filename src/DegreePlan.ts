@@ -30,7 +30,7 @@ export interface RequirementStatus {
 
 export type CourseStatus = 'planned' | 'completed';
 
-// One course in the plan, in the shape the API sends and receives.
+// One course in the plan, as sent to and from the API.
 export interface PlanCourse {
   code: string;
   quarter: number;
@@ -83,7 +83,6 @@ export class DegreePlan {
     return this.completed.has(code);
   }
 
-  // Marks a course in the plan as completed. Throws if the course isn't in the plan.
   markCompleted(code: string): DegreePlan {
     if (!this.hasCourse(code)) {
       throw new Error(`${code} is not in the plan`);
@@ -128,12 +127,11 @@ export class DegreePlan {
     return warnings;
   }
 
-  // Requirement status counting every course in the plan, planned or completed.
+  // Counts planned and completed courses.
   requirementStatus(requirements: readonly DegreeRequirement[]): RequirementStatus[] {
     return statusFor(requirements, this.courseCodes());
   }
 
-  // Requirement status counting only completed courses.
   completedRequirementStatus(requirements: readonly DegreeRequirement[]): RequirementStatus[] {
     return statusFor(requirements, this.completedCodes());
   }
@@ -152,8 +150,6 @@ export class DegreePlan {
     );
   }
 
-  // Rebuilds a plan from rows sent by the API. Skips any row that can't be added,
-  // the same way fromJSON does.
   static fromRows(rows: readonly PlanCourse[]): DegreePlan {
     let plan = new DegreePlan();
     for (const row of rows) {
@@ -161,7 +157,7 @@ export class DegreePlan {
         plan = plan.addCourse(row.quarter, row.code);
         if (row.status === 'completed') plan = plan.markCompleted(row.code);
       } catch {
-        // Skip rows that are no longer valid.
+        // Skip rows that are no longer valid, like fromJSON does.
       }
     }
     return plan;

@@ -1,4 +1,4 @@
-// The app's logo: a graduation cap on a red tile. Same drawing as public/favicon.svg.
+// Keep in sync with public/favicon.svg.
 export default function Logo({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 32 32" className={className} aria-hidden="true">
