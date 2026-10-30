@@ -1,8 +1,9 @@
 import { Suspense } from 'react';
 import { QueryErrorResetBoundary } from '@tanstack/react-query';
 import { ErrorBoundary } from 'react-error-boundary';
-import { BrowserRouter, Route, Routes } from 'react-router';
+import { BrowserRouter, Link, Route, Routes } from 'react-router';
 import LoadError from '@/components/LoadError';
+import Logo from '@/components/Logo';
 import NavItem from '@/components/NavItem';
 import PlanProvider from '@/components/PlanProvider';
 import SaveBar from '@/components/SaveBar';
@@ -22,7 +23,10 @@ export default function App() {
                 <header className="border-b">
                   <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
                     <nav className="flex items-center gap-5">
-                      <span className="font-semibold">SCU Degree Planner</span>
+                      <Link to="/" className="flex items-center gap-2 font-semibold">
+                        <Logo className="size-7" />
+                        SCU Degree Planner
+                      </Link>
                       <NavItem to="/">Progress</NavItem>
                       <NavItem to="/plan">4-Year Plan</NavItem>
                       <NavItem to="/courses">Courses</NavItem>
