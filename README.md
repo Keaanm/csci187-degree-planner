@@ -4,7 +4,7 @@ CSCI 187 Group 6: Darren Hu, Henry Packer, Keaan Mirchandani, William Tran-Nguye
 
 A course planning and degree progress tool for Santa Clara University Computer Science undergraduates. Today, students plan by hand from PDF requirement sheets, Workday, and their own spreadsheets. They trace prerequisites themselves and check off requirements manually. With this tool, students can build a 4-year plan and see their progress toward their degree requirements.
 
-The MVP covers the Computer Science major with the Software emphasis. Our team preloads the course and requirement data. There are no accounts. The plan is saved in the browser with localStorage.
+The MVP covers the Computer Science major with the Software emphasis. Our team preloads the course and requirement data. There are no accounts. The plan is saved by the C++ backend in a SQLite database.
 
 The full requirements are in [REQUIREMENTS.md](REQUIREMENTS.md), and the functional specifications are in [SPECIFICATIONS.md](SPECIFICATIONS.md).
 
@@ -33,14 +33,22 @@ Selecting an emphasis and requirement data for the other CS emphases, the CS min
 
 ## Setup
 
-Requirements: [Node.js](https://nodejs.org/) 22.12 or newer (current LTS recommended) and git.
+Requirements: [Node.js](https://nodejs.org/) 22.12 or newer (current LTS recommended), git, [CMake](https://cmake.org/download/) 3.20 or newer, and a C++17 compiler (Xcode Command Line Tools on macOS: `xcode-select --install`; Visual Studio 2022 on Windows; `g++` on Linux).
 
 ```sh
 git clone https://github.com/Keaanm/csci187-degree-planner.git
 cd csci187-degree-planner
 npm install
-npm run dev      # start the dev server at http://localhost:5173
 ```
+
+Run the backend and the frontend in two terminals:
+
+```sh
+npm run server   # build and start the C++ API at http://localhost:3001
+npm run dev      # start the frontend at http://localhost:5173
+```
+
+The first `npm run server` takes a minute because CMake downloads and builds the C++ dependencies. The saved plan goes in `server/degree_planner.db`; delete that file to start over.
 
 Other commands:
 
@@ -48,16 +56,20 @@ Other commands:
 npm test         # run the unit tests once (Vitest)
 npm run build    # type-check and build for production
 npm run lint     # lint with oxlint
+npm run server:test  # build the backend and run its API tests
 ```
+
+On Windows, run the server binary directly after `npm run server:build`: `server\build\Release\degree_planner_server.exe --db server\degree_planner.db` (or `server\build\Debug\...`).
 
 ## Project layout
 
 - `src/` contains the app source. The domain logic (`DegreePlan`, `DegreeRequirement`, `Course`) lives here as plain TypeScript, kept apart from React so it can be unit tested.
 - `src/data/` holds the preloaded course and requirement data for the B.S. in Computer Science (College of Arts and Sciences, Software emphasis), taken from the [2026-27 SCU Undergraduate Bulletin](https://www.scu.edu/appdata/pub/bulletin/undergraduate/2026-27/chapter-3-college-of-arts-and-sciences/mathematics-and-computer-science.html). Required 1-unit labs (e.g. CSEN 20L) are folded into their course's units. Every prerequisite is a course in the list, so the list also has the Computer Science and Engineering courses that appear as either/or prerequisites (CSEN 10, 11, 12, 79 and ECEN 120, from the [engineering bulletin](https://www.scu.edu/bulletin/undergraduate/chapter-5-school-of-engineering/computer-science-and-engineering.html)). CSEN 19 is cross-listed as MATH 51, so prerequisites use MATH 51. CSCI 187 also names CSEN 70, the former COEN 70, which is no longer in the bulletin, so it's left out.
 - `src/App.tsx` defines the routes: `/` (degree progress), `/plan` (4-year plan), `/courses` (course lookup), and `/courses/:code` (one course). There is also a placeholder `/setup` route from the template, which the MVP does not use.
+- `server/` is the C++ backend (see [API.md](API.md) for the routes). `Database.cpp` creates the SQLite tables and seeds them from `src/data/` on every start; `Routes.cpp` has the HTTP routes; `main.cpp` starts the server. `server/tests/api_test.cpp` starts the server with an in-memory database and calls every route.
 - `tests/` contains the unit tests. Any file ending in `.test.ts` runs automatically.
-- `.github/workflows/ci.yml` runs on every push and pull request. It installs dependencies, builds, and runs the tests.
+- `.github/workflows/ci.yml` runs on every push and pull request. It installs dependencies, builds, and runs the tests, and builds and tests the backend.
 
 ## Tech stack
 
-TypeScript, React, Vite, React Router, Vitest, and GitHub Actions.
+Frontend: TypeScript, React, Vite, React Router, and Vitest. Backend: C++17 with [cpp-httplib](https://github.com/yhirose/cpp-httplib), [nlohmann/json](https://github.com/nlohmann/json), SQLite, and CMake. CI: GitHub Actions.

@@ -82,11 +82,18 @@ Return **400** if the body isn't in this shape. The frontend shows an error for 
 
 ```sql
 course              (course_id PK, code UNIQUE, title, units, description)
-course_prerequisite (course_id, prerequisite_id, prereq_group)   -- requires
+course_prerequisite (course_id, prerequisite_code, prereq_group) -- requires
 degree_requirement  (requirement_id PK, description, count)
-course_requirement  (course_id, requirement_id)                  -- satisfies
+course_requirement  (course_id, requirement_id, position)        -- satisfies
 degree_plan         (plan_id PK, last_saved)
-plan_course         (plan_id, course_id, quarter, status)        -- contains
+plan_course         (plan_id, course_id, quarter, status, position) -- contains
 ```
+
+Differences from the ER diagram, in `server/src/Database.cpp`:
+
+- `course_prerequisite` stores the prerequisite's code instead of a `course_id`, because some alternatives (for example CSEN 79 and CSEN 12) aren't in the offered course list.
+- `position` keeps the order of courses within a requirement and within a plan's quarter.
+- Requirement ids are the requirement's position in `requirements.json`, starting at 1.
+- `PUT` also returns **400** for a course that isn't offered or a course listed twice.
 
 `src/data/courses.json` and `src/data/requirements.json` can be used as seed data. The frontend still uses those files to check the plan's rules (offered courses, unit limit), so keep the database seeded from them.

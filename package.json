@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "server:build": "cmake -S server -B server/build && cmake --build server/build",
+    "server": "npm run server:build && ./server/build/degree_planner_server --db server/degree_planner.db",
+    "server:test": "npm run server:build && ctest --test-dir server/build --output-on-failure"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
