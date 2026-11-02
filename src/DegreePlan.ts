@@ -157,32 +157,9 @@ export class DegreePlan {
         plan = plan.addCourse(row.quarter, row.code);
         if (row.status === 'completed') plan = plan.markCompleted(row.code);
       } catch {
-        // Skip rows that are no longer valid, like fromJSON does.
+        // Skip rows that are no longer valid.
       }
     }
-    return plan;
-  }
-
-  // Course codes per quarter, for saving.
-  toJSON(): string[][] {
-    return this.quarters.map((q) => q.map((c) => c.code));
-  }
-
-  // Rebuilds a plan from saved course codes. Skips any course that can't be added
-  // (no longer offered, duplicate, or over the unit limit).
-  static fromJSON(saved: unknown): DegreePlan {
-    let plan = new DegreePlan();
-    if (!Array.isArray(saved)) return plan;
-    saved.slice(0, QUARTER_COUNT).forEach((codes, quarter) => {
-      if (!Array.isArray(codes)) return;
-      for (const code of codes) {
-        try {
-          plan = plan.addCourse(quarter, String(code));
-        } catch {
-          // Skip courses that are no longer valid.
-        }
-      }
-    });
     return plan;
   }
 
