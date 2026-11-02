@@ -76,6 +76,11 @@ describe('API client', () => {
     expect(lastSaved).toBe('2026-10-30T21:00:00.000Z');
   });
 
+  it("shows the server's error message when it sends one", async () => {
+    const { fetchFn } = fakeFetch(400, { error: 'CSCI 999 is not an offered course' });
+    await expect(savePlan(new DegreePlan(), 1, fetchFn)).rejects.toThrow('CSCI 999 is not an offered course');
+  });
+
   it('throws when the server returns an error', async () => {
     await expect(fetchCourses(fakeFetch(500).fetchFn)).rejects.toThrow('The server returned 500');
     await expect(fetchPlan(1, fakeFetch(500).fetchFn)).rejects.toThrow('The server returned 500');

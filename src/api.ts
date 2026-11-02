@@ -69,7 +69,17 @@ async function getJson<T>(fetchFn: Fetch, url: string): Promise<T> {
 
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    throw new Error(`The server returned ${response.status} for ${response.url || 'a request'}`);
+    throw new Error((await errorMessage(response)) ?? `The server returned ${response.status}`);
   }
   return (await response.json()) as T;
+}
+
+// The backend sends { "error": "..." } with a readable message.
+async function errorMessage(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { error?: unknown };
+    return typeof body.error === 'string' ? body.error : undefined;
+  } catch {
+    return undefined;
+  }
 }
