@@ -4,7 +4,7 @@ CSCI 187 Group 6: Darren Hu, Henry Packer, Keaan Mirchandani, William Tran-Nguye
 
 The frontend (`src/api.ts`) calls these routes. The backend runs on **port 3001**. In development, Vite forwards every `/api/...` request to `http://localhost:3001`, so the frontend uses plain `/api/...` URLs.
 
-All bodies are JSON. Courses are identified by their `code` (for example `"CSCI 61"`) in the API, even though the database uses `course_id` as the key.
+All bodies are JSON. Errors have the body `{ "error": "<message>" }`: **400** for bad input (including a plan id that isn't a positive integer), **404** for an unknown route, and **500** for a server error. Courses are identified by their `code` (for example `"CSCI 61"`) in the API, even though the database uses `course_id` as the key.
 
 ## `GET /api/courses`
 

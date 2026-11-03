@@ -34,7 +34,7 @@ Selecting an emphasis and requirement data for the other CS emphases, the CS min
 ## Design
 
 - [ER diagram V2](docs/er-diagram-v2.drawio): the database tables (Chen notation), matching `server/src/Database.cpp`.
-- [CRC diagram V3](docs/crc-diagram-v3.drawio): the classes in the frontend and backend, their responsibilities and collaborators.
+- [CRC diagram V3](docs/crc-diagram-v3.drawio): the core domain classes (`DegreePlan`, `DegreeRequirement`, `Course`), their responsibilities and what each one knows.
 
 Open the `.drawio` files at [app.diagrams.net](https://app.diagrams.net) (File → Open from → Device).
 
