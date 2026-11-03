@@ -11,9 +11,19 @@ int main(int argc, char** argv) {
   std::string dbPath = "degree_planner.db";
   std::string dataDir = DEFAULT_DATA_DIR;
 
-  for (int i = 1; i + 1 < argc; i += 2) {
-    if (!std::strcmp(argv[i], "--port")) port = std::stoi(argv[i + 1]);
-    else if (!std::strcmp(argv[i], "--db")) dbPath = argv[i + 1];
+  for (int i = 1; i < argc; i += 2) {
+    if (i + 1 == argc) {
+      std::cerr << "Missing a value for " << argv[i] << "\n";
+      return 1;
+    }
+    if (!std::strcmp(argv[i], "--port")) {
+      try {
+        port = std::stoi(argv[i + 1]);
+      } catch (const std::exception&) {
+        std::cerr << "--port must be a number\n";
+        return 1;
+      }
+    } else if (!std::strcmp(argv[i], "--db")) dbPath = argv[i + 1];
     else if (!std::strcmp(argv[i], "--data")) dataDir = argv[i + 1];
     else {
       std::cerr << "Unknown option " << argv[i] << "\n";

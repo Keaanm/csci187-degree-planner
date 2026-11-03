@@ -1,6 +1,7 @@
 #include "Database.h"
 
 #include <chrono>
+#include <cstdio>
 #include <ctime>
 #include <fstream>
 #include <map>
@@ -40,11 +41,15 @@ class Statement {
     if (rc == SQLITE_DONE) return false;
     throw std::runtime_error(std::string("SQL error: ") + sqlite3_errmsg(db_));
   }
-  // For INSERT/UPDATE/DELETE: run once, then reset so the statement can be reused.
-  void run() {
-    step();
+  // Clears the bindings and rewinds, so the statement can be run again.
+  void reset() {
     sqlite3_reset(stmt_);
     sqlite3_clear_bindings(stmt_);
+  }
+  // For INSERT/UPDATE/DELETE: run once, then reset.
+  void run() {
+    step();
+    reset();
   }
 
   int intAt(int col) { return sqlite3_column_int(stmt_, col); }
@@ -63,6 +68,14 @@ json readJsonFile(const std::string& path) {
   std::ifstream in(path);
   if (!in) throw std::runtime_error("Can't open " + path);
   return json::parse(in);
+}
+
+// Same limit and quarter names as the frontend (src/DegreePlan.ts).
+constexpr int kMaxUnitsPerQuarter = 18;
+
+std::string quarterLabel(int quarter) {
+  static const char* terms[] = {"Fall", "Winter", "Spring"};
+  return "Year " + std::to_string(quarter / 3 + 1) + " " + terms[quarter % 3];
 }
 
 // ISO 8601 in UTC with milliseconds, like JavaScript's toISOString().
@@ -320,13 +333,18 @@ std::string Database::savePlan(int planId, const std::vector<PlanRow>& rows) {
   // Check every row before writing anything.
   std::vector<int> courseIds;
   std::set<std::string> seen;
-  Statement findCourse(db_, "SELECT course_id FROM course WHERE code = ?");
+  std::map<int, int> unitsInQuarter;
+  Statement findCourse(db_, "SELECT course_id, units FROM course WHERE code = ?");
   for (const auto& row : rows) {
     if (!seen.insert(row.code).second) throw BadRequest(row.code + " is in the plan more than once");
     findCourse.bind(1, row.code);
     if (!findCourse.step()) throw BadRequest(row.code + " is not an offered course");
     courseIds.push_back(findCourse.intAt(0));
-    findCourse.run();  // reset for the next row
+    if ((unitsInQuarter[row.quarter] += findCourse.intAt(1)) > kMaxUnitsPerQuarter) {
+      throw BadRequest(quarterLabel(row.quarter) + " can't have more than " +
+                       std::to_string(kMaxUnitsPerQuarter) + " units");
+    }
+    findCourse.reset();
   }
 
   std::string lastSaved = nowIso();
