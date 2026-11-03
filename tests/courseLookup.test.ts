@@ -1,8 +1,8 @@
 // Keaan Mirchandani
 // Tests course search and the course detail lookups.
 import { describe, expect, it } from 'vitest';
-import { catalog, requirements } from '../src/catalog';
 import { coursesRequiring, requirementsSatisfiedBy, searchCourses } from '../src/courseLookup';
+import { catalog, requirements } from './catalog';
 
 const codes = (courses: { code: string }[]) => courses.map((c) => c.code);
 

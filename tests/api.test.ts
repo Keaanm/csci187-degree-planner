@@ -2,9 +2,9 @@
 // Tests the API client with a fake fetch, so no backend is needed.
 import { describe, expect, it } from 'vitest';
 import { fetchCourses, fetchPlan, fetchRequirements, savePlan } from '../src/api';
-import { catalog } from '../src/catalog';
 import { Course } from '../src/Course';
 import { DegreePlan } from '../src/DegreePlan';
+import { catalog } from './catalog';
 
 interface Call {
   url: string;
@@ -90,7 +90,7 @@ describe('API client', () => {
 
   it('saves the whole plan as rows with a PUT and returns the new last-saved time', async () => {
     const { fetchFn, calls } = fakeFetch(200, { planId: 1, lastSaved: '2026-10-30T21:00:00.000Z' });
-    const plan = new DegreePlan().addCourse(0, 'CSCI 10').markCompleted('CSCI 10');
+    const plan = DegreePlan.empty(catalog).addCourse(0, 'CSCI 10').markCompleted('CSCI 10');
     const lastSaved = await savePlan(plan, 1, fetchFn);
     expect(calls[0].url).toBe('/api/plans/1');
     expect(calls[0].init?.method).toBe('PUT');
@@ -102,12 +102,12 @@ describe('API client', () => {
 
   it("shows the server's error message when it sends one", async () => {
     const { fetchFn } = fakeFetch(400, { error: 'CSCI 999 is not an offered course' });
-    await expect(savePlan(new DegreePlan(), 1, fetchFn)).rejects.toThrow('CSCI 999 is not an offered course');
+    await expect(savePlan(DegreePlan.empty(catalog), 1, fetchFn)).rejects.toThrow('CSCI 999 is not an offered course');
   });
 
   it('throws when the server returns an error', async () => {
     await expect(fetchCourses(fakeFetch(500).fetchFn)).rejects.toThrow('The server returned 500');
     await expect(fetchPlan(catalog, 1, fakeFetch(500).fetchFn)).rejects.toThrow('The server returned 500');
-    await expect(savePlan(new DegreePlan(), 1, fakeFetch(400).fetchFn)).rejects.toThrow('The server returned 400');
+    await expect(savePlan(DegreePlan.empty(catalog), 1, fakeFetch(400).fetchFn)).rejects.toThrow('The server returned 400');
   });
 });

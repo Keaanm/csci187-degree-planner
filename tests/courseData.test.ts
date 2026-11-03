@@ -1,7 +1,7 @@
 // Keaan Mirchandani
 // Tests that the preloaded course and requirement data is consistent.
 import { describe, expect, it } from 'vitest';
-import { catalog, requirements } from '../src/catalog';
+import { catalog, requirements } from './catalog';
 
 const codes = new Set(catalog.map((c) => c.code));
 

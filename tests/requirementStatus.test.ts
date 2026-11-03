@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { DegreePlan } from '../src/DegreePlan';
 import { DegreeRequirement } from '../src/DegreeRequirement';
-import { requirements } from '../src/catalog';
+import { catalog, requirements } from './catalog';
 
 describe('DegreeRequirement and DegreePlan.requirementStatus', () => {
     it('does not satisfy a requirement when none of its courses are taken', () => {
@@ -48,14 +48,14 @@ describe('DegreeRequirement and DegreePlan.requirementStatus', () => {
     it('reports an empty degree plan as satisfying none of the catalog requirements', () => {
         expect(requirements.length).toBeGreaterThan(0);
 
-        const statuses = new DegreePlan().requirementStatus(requirements);
+        const statuses = DegreePlan.empty(catalog).requirementStatus(requirements);
 
         expect(statuses).toHaveLength(requirements.length);
         expect(statuses.every((status) => !status.satisfied)).toBe(true);
     });
 
     it('satisfies the natural science requirement when CHEM 11 is planned', () => {
-        const plan = new DegreePlan().addCourse(0, 'CHEM 11');
+        const plan = DegreePlan.empty(catalog).addCourse(0, 'CHEM 11');
         const statuses = plan.requirementStatus(requirements);
         const naturalScience = statuses.find(
             (status) => status.requirement.description === 'Natural science (one course)',

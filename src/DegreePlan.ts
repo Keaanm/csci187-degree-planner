@@ -1,6 +1,5 @@
 import type { Course } from './Course';
 import type { DegreeRequirement } from './DegreeRequirement';
-import { catalog } from './catalog';
 
 const YEARS = 4;
 const TERMS = ['Fall', 'Winter', 'Spring'] as const;
@@ -39,25 +38,24 @@ export interface PlanCourse {
 
 // A student's 4-year plan: the courses in each quarter, and which of them are completed.
 // Immutable: methods that change the plan return a new DegreePlan.
-// `offered` is the list of courses that can be added. The app passes the courses from the
-// API; the bundled catalog is the default so the unit tests can use real course data.
+// `offered` is the list of courses that can be added; the app passes the courses from the API.
 export class DegreePlan {
   readonly quarters: readonly (readonly Course[])[];
   readonly completed: ReadonlySet<string>;
   private readonly offered: readonly Course[];
 
-  constructor(
-    quarters?: readonly (readonly Course[])[],
-    completed: ReadonlySet<string> = new Set(),
-    offered: readonly Course[] = catalog,
+  private constructor(
+    offered: readonly Course[],
+    quarters: readonly (readonly Course[])[],
+    completed: ReadonlySet<string>,
   ) {
-    this.quarters = quarters ?? Array.from({ length: QUARTER_COUNT }, () => []);
-    this.completed = completed;
     this.offered = offered;
+    this.quarters = quarters;
+    this.completed = completed;
   }
 
   static empty(offered: readonly Course[]): DegreePlan {
-    return new DegreePlan(undefined, new Set(), offered);
+    return new DegreePlan(offered, Array.from({ length: QUARTER_COUNT }, () => []), new Set());
   }
 
   coursesIn(quarter: number): readonly Course[] {
@@ -99,13 +97,13 @@ export class DegreePlan {
     if (!this.hasCourse(code)) {
       throw new Error(`${code} is not in the plan`);
     }
-    return new DegreePlan(this.quarters, new Set([...this.completed, code]), this.offered);
+    return new DegreePlan(this.offered, this.quarters, new Set([...this.completed, code]));
   }
 
   markPlanned(code: string): DegreePlan {
     const completed = new Set(this.completed);
     completed.delete(code);
-    return new DegreePlan(this.quarters, completed, this.offered);
+    return new DegreePlan(this.offered, this.quarters, completed);
   }
 
   unitsIn(quarter: number): number {
@@ -162,7 +160,7 @@ export class DegreePlan {
     );
   }
 
-  static fromRows(rows: readonly PlanCourse[], offered: readonly Course[] = catalog): DegreePlan {
+  static fromRows(rows: readonly PlanCourse[], offered: readonly Course[]): DegreePlan {
     let plan = DegreePlan.empty(offered);
     for (const row of rows) {
       try {
@@ -176,7 +174,7 @@ export class DegreePlan {
   }
 
   private withQuarter(quarter: number, courses: Course[]): DegreePlan {
-    return new DegreePlan(this.quarters.map((q, i) => (i === quarter ? courses : q)), this.completed, this.offered);
+    return new DegreePlan(this.offered, this.quarters.map((q, i) => (i === quarter ? courses : q)), this.completed);
   }
 
   private checkQuarter(quarter: number): void {
