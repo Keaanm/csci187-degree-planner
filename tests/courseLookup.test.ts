@@ -20,7 +20,7 @@ describe('searchCourses', () => {
   });
 
   it('matches words in the title', () => {
-    expect(codes(searchCourses(catalog, 'data structures'))).toEqual(['CSCI 61']);
+    expect(codes(searchCourses(catalog, 'data structures'))).toEqual(['CSCI 61', 'CSEN 12', 'CSEN 79']);
   });
 
   it('matches words in the description', () => {
@@ -50,7 +50,7 @@ describe('requirementsSatisfiedBy', () => {
 
 describe('coursesRequiring', () => {
   it('lists the courses that need the course as a prerequisite', () => {
-    expect(codes(coursesRequiring(catalog, 'CSCI 10'))).toEqual(['CSCI 60']);
+    expect(codes(coursesRequiring(catalog, 'CSCI 10'))).toEqual(['CSCI 60', 'CSEN 11']);
   });
 
   it('includes courses where it is one option in an either/or group', () => {

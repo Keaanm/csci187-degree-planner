@@ -95,4 +95,4 @@ Differences from the ER diagram, in `server/src/Database.cpp`:
 - Requirement ids are the requirement's position in `requirements.json`, starting at 1.
 - `PUT` also returns **400** for a course that isn't offered or a course listed twice.
 
-`src/data/courses.json` and `src/data/requirements.json` can be used as seed data. The frontend still uses those files to check the plan's rules (offered courses, unit limit), so keep the database seeded from them.
+The backend seeds the database from `src/data/courses.json` and `src/data/requirements.json` on every start. Every prerequisite and requirement course must be a course in `courses.json`, or the server won't start.
