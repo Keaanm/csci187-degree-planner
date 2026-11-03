@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { Course } from '@/Course';
+import { searchCourses } from '@/courseLookup';
 
 export default function CoursePicker({ courses, label, onPick }: {
   courses: Course[];
@@ -31,13 +32,13 @@ export default function CoursePicker({ courses, label, onPick }: {
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-96 p-0" align="start">
-        {/* Substring match, so "CSCI 10" doesn't match "CSCI 180". */}
-        <Command filter={(value, term) => (value.toLowerCase().includes(term.trim().toLowerCase()) ? 1 : 0)}>
-          <CommandInput placeholder="Search by code or title…" value={search} onValueChange={setSearch} />
+        {/* Filter with searchCourses so this matches the course lookup page. */}
+        <Command shouldFilter={false}>
+          <CommandInput placeholder="Search courses…" value={search} onValueChange={setSearch} />
           <CommandList>
             <CommandEmpty>No matching courses.</CommandEmpty>
-            {courses.map((c) => (
-              <CommandItem key={c.code} value={`${c.code} ${c.title}`} onSelect={() => pick(c.code)}>
+            {searchCourses(courses, search).map((c) => (
+              <CommandItem key={c.code} value={c.code} onSelect={() => pick(c.code)}>
                 <span className="w-20 shrink-0 font-medium">{c.code}</span>
                 <span className="min-w-0 flex-1 truncate text-muted-foreground">{c.title}</span>
                 <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">{c.units} units</span>

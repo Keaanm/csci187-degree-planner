@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { searchCourses } from '@/courseLookup';
 import { usePlan } from '@/PlanContext';
 import { useCourses } from '@/queries';
 
@@ -10,10 +11,7 @@ export default function CoursesPage() {
   const courses = useCourses();
   const { plan } = usePlan();
   const [search, setSearch] = useState('');
-  const term = search.trim().toLowerCase();
-  const matches = courses.filter((c) =>
-    [c.code, c.title, c.description].some((text) => text.toLowerCase().includes(term)),
-  );
+  const matches = searchCourses(courses, search);
 
   return (
     <div className="space-y-6">

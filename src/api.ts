@@ -45,11 +45,16 @@ export async function fetchRequirements(fetchFn: Fetch = fetch): Promise<DegreeR
 }
 
 // 404 means the plan was never saved.
-export async function fetchPlan(planId: number = PLAN_ID, fetchFn: Fetch = fetch): Promise<LoadedPlan> {
+// `offered` is the course list from fetchCourses.
+export async function fetchPlan(
+  offered: readonly Course[],
+  planId: number = PLAN_ID,
+  fetchFn: Fetch = fetch,
+): Promise<LoadedPlan> {
   const response = await fetchFn(`/api/plans/${planId}`);
-  if (response.status === 404) return { plan: new DegreePlan(), lastSaved: null };
+  if (response.status === 404) return { plan: DegreePlan.empty(offered), lastSaved: null };
   const saved = await readJson<PlanJson>(response);
-  return { plan: DegreePlan.fromRows(saved.courses), lastSaved: saved.lastSaved };
+  return { plan: DegreePlan.fromRows(saved.courses, offered), lastSaved: saved.lastSaved };
 }
 
 // Replaces everything saved for the plan.

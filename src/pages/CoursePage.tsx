@@ -3,6 +3,7 @@ import BackLink from '@/components/BackLink';
 import CourseLink from '@/components/CourseLink';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { coursesRequiring, requirementsSatisfiedBy } from '@/courseLookup';
 import { quarterLabel } from '@/DegreePlan';
 import { usePlan } from '@/PlanContext';
 import { useCourses, useRequirements } from '@/queries';
@@ -23,8 +24,8 @@ export default function CoursePage() {
     );
   }
 
-  const satisfies = requirements.filter((r) => r.courses.includes(course.code));
-  const requiredBy = courses.filter((c) => c.prerequisites.some((group) => group.includes(course.code)));
+  const satisfies = requirementsSatisfiedBy(requirements, course.code);
+  const requiredBy = coursesRequiring(courses, course.code);
   const quarter = plan.quarters.findIndex((q) => q.some((c) => c.code === course.code));
 
   return (

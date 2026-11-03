@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react';
 import type { DegreePlan } from './DegreePlan';
 
-export interface PlanState {
+interface PlanState {
   // The plan with any unsaved changes.
   plan: DegreePlan;
   saved: boolean;
