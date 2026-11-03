@@ -38,7 +38,7 @@ int main() {
     auto res = client.Get("/api/courses");
     CHECK(res && res->status == 200);
     json courses = json::parse(res->body);
-    CHECK(courses.size() == 28);
+    CHECK(courses.size() == 33);
     json csci10, csci61;
     for (auto& c : courses) {
       if (c["code"] == "CSCI 10") csci10 = c;
