@@ -117,13 +117,14 @@ void Database::createTables() {
       units       INTEGER NOT NULL,
       description TEXT NOT NULL
     );
-    -- prerequisite_code is a code, not a course_id, because some prerequisites
-    -- (e.g. CSEN 79, CSEN 12) are alternatives that aren't in the offered list.
-    CREATE TABLE IF NOT EXISTS course_prerequisite (
-      course_id         INTEGER NOT NULL REFERENCES course(course_id) ON DELETE CASCADE,
-      prerequisite_code TEXT NOT NULL,
-      prereq_group      INTEGER NOT NULL,
-      PRIMARY KEY (course_id, prerequisite_code, prereq_group)
+    -- Rebuilt from courses.json on every start, so it's safe to drop. Dropping it also
+    -- replaces the old version that stored prerequisite codes instead of ids.
+    DROP TABLE IF EXISTS course_prerequisite;
+    CREATE TABLE course_prerequisite (
+      course_id       INTEGER NOT NULL REFERENCES course(course_id) ON DELETE CASCADE,
+      prerequisite_id INTEGER NOT NULL REFERENCES course(course_id) ON DELETE CASCADE,
+      prereq_group    INTEGER NOT NULL,
+      PRIMARY KEY (course_id, prerequisite_id, prereq_group)
     );
     CREATE TABLE IF NOT EXISTS degree_requirement (
       requirement_id INTEGER PRIMARY KEY,
@@ -195,13 +196,18 @@ void Database::seed(const std::string& dataDir) {
 
     exec("DELETE FROM course_prerequisite");
     Statement prereq(db_,
-        "INSERT OR IGNORE INTO course_prerequisite (course_id, prerequisite_code, prereq_group) VALUES (?, ?, ?)");
+        "INSERT OR IGNORE INTO course_prerequisite (course_id, prerequisite_id, prereq_group) VALUES (?, ?, ?)");
     for (const auto& c : courseData) {
       int courseId = ids.at(c.at("code").get<std::string>());
       int group = 0;
       for (const auto& alternatives : c.at("prerequisites")) {
         for (const auto& code : alternatives) {
-          prereq.bind(1, courseId).bind(2, code.get<std::string>()).bind(3, group);
+          auto it = ids.find(code.get<std::string>());
+          if (it == ids.end()) {
+            throw std::runtime_error(c.at("code").get<std::string>() + " lists the prerequisite " +
+                                     code.get<std::string>() + ", which isn't in courses.json");
+          }
+          prereq.bind(1, courseId).bind(2, it->second).bind(3, group);
           prereq.run();
         }
         ++group;
@@ -254,8 +260,9 @@ json Database::courses() {
                       {"prerequisites", json::array()}});
   }
   Statement prereqs(db_, R"sql(
-    SELECT course_id, prereq_group, prerequisite_code FROM course_prerequisite
-    ORDER BY course_id, prereq_group, rowid)sql");
+    SELECT p.course_id, p.prereq_group, c.code FROM course_prerequisite p
+    JOIN course c ON c.course_id = p.prerequisite_id
+    ORDER BY p.course_id, p.prereq_group, p.rowid)sql");
   while (prereqs.step()) {
     auto& groups = result[index.at(prereqs.intAt(0))]["prerequisites"];
     size_t group = static_cast<size_t>(prereqs.intAt(1));
