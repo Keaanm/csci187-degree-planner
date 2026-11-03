@@ -4,7 +4,7 @@ CSCI 187 Group 6: Darren Hu, Henry Packer, Keaan Mirchandani, William Tran-Nguye
 
 A course planning and degree progress tool for Santa Clara University Computer Science undergraduates. Today, students plan by hand from PDF requirement sheets, Workday, and their own spreadsheets. They trace prerequisites themselves and check off requirements manually. With this tool, students can build a 4-year plan and see their progress toward their degree requirements.
 
-The MVP covers the Computer Science major with the Software emphasis. Our team preloads the course and requirement data. There are no accounts. The plan is saved by the C++ backend in a SQLite database.
+The MVP covers the Computer Science major with the Software emphasis. Our team preloads the course and requirement data. There are no accounts. The plan is saved by the C++ backend in a SQLite database. Each server keeps one plan, so each person runs the app on their own machine to get their own plan; if two people share a server, they share the plan and the last save wins. The database and API already support many plans (`/api/plans/:planId`) for when accounts are added.
 
 The full requirements are in [REQUIREMENTS.md](REQUIREMENTS.md), and the functional specifications are in [SPECIFICATIONS.md](SPECIFICATIONS.md).
 
