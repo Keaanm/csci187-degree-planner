@@ -16,7 +16,7 @@ These specifications cover the MVP. The plan logic lives in `src/DegreePlan.ts`,
    A course can only be added if it is in the course list. The search when adding a course only shows offered courses that aren't already in the plan, and the plan rejects any other course code with an error. A course can only be in the plan once. The backend also rejects a save with a course that isn't offered or is listed twice.
 
 2. **Only accept a max of 18 units per quarter.**
-   If adding a course would put a quarter over 18 units, the course is not added and an error is shown. A quarter with exactly 18 units is allowed. The app checks this limit; the backend does not.
+   If adding a course would put a quarter over 18 units, the course is not added and an error is shown. A quarter with exactly 18 units is allowed. The backend also rejects a save with a quarter over 18 units.
 
 3. **Warn when the user adds a class that needs a prerequisite done first.**
    A prerequisite only counts if it is planned in an earlier quarter. If it is missing, in the same quarter, or in a later quarter, the course shows a warning that lists the missing prerequisites. When a prerequisite can be met by one of several courses (for example, CSCI 61 or CSEN 79), any one of them is enough. The course is still added, so the student can fix the order.

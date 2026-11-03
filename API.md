@@ -93,6 +93,6 @@ Differences from the ER diagram, in `server/src/Database.cpp`:
 
 - `position` keeps the order of courses within a requirement and within a plan's quarter.
 - Requirement ids are the requirement's position in `requirements.json`, starting at 1.
-- `PUT` also returns **400** for a course that isn't offered or a course listed twice.
+- `PUT` also returns **400** for a course that isn't offered, a course listed twice, or a quarter over 18 units.
 
 The backend seeds the database from `src/data/courses.json` and `src/data/requirements.json` on every start. Every prerequisite and requirement course must be a course in `courses.json`, or the server won't start.
