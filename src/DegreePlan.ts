@@ -1,8 +1,8 @@
 import type { Course } from './Course';
 import type { DegreeRequirement } from './DegreeRequirement';
 
-const YEARS = 4;
-const TERMS = ['Fall', 'Winter', 'Spring'] as const;
+export const YEARS = 4;
+export const TERMS = ['Fall', 'Winter', 'Spring'] as const;
 export const QUARTER_COUNT = YEARS * TERMS.length;
 export const MAX_UNITS_PER_QUARTER = 18;
 export const UNITS_TO_GRADUATE = 175;
@@ -25,6 +25,11 @@ export interface RequirementStatus {
   satisfied: boolean;
   stillNeeded: number;
   missing: string[];
+}
+
+// completed: the completed courses meet it. planned: the rest of the plan covers it.
+export interface RequirementProgress extends RequirementStatus {
+  state: 'completed' | 'planned' | 'missing';
 }
 
 type CourseStatus = 'planned' | 'completed';
@@ -144,6 +149,15 @@ export class DegreePlan {
 
   completedRequirementStatus(requirements: readonly DegreeRequirement[]): RequirementStatus[] {
     return statusFor(requirements, this.completedCodes());
+  }
+
+  // stillNeeded and missing count the whole plan.
+  requirementProgress(requirements: readonly DegreeRequirement[]): RequirementProgress[] {
+    const completed = this.completedRequirementStatus(requirements);
+    return this.requirementStatus(requirements).map((status, i) => ({
+      ...status,
+      state: completed[i].satisfied ? 'completed' : status.satisfied ? 'planned' : 'missing',
+    }));
   }
 
   courseCodes(): string[] {

@@ -10,7 +10,6 @@ import SaveBar from '@/components/SaveBar';
 import CoursePage from '@/pages/CoursePage';
 import CoursesPage from '@/pages/CoursesPage';
 import PlanPage from '@/pages/PlanPage';
-import ProgressPage from '@/pages/ProgressPage';
 
 export default function App() {
   return (
@@ -20,15 +19,14 @@ export default function App() {
           <ErrorBoundary onReset={reset} FallbackComponent={LoadError}>
             <Suspense fallback={<p className="px-4 py-6">Loading…</p>}>
               <PlanProvider>
-                <header className="border-b">
+                <header className="sticky top-0 z-10 border-b bg-background">
                   <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
                     <nav className="flex items-center gap-5">
                       <Link to="/" className="flex items-center gap-2 font-semibold">
                         <Logo className="size-7" />
                         SCU Degree Planner
                       </Link>
-                      <NavItem to="/">Progress</NavItem>
-                      <NavItem to="/plan">4-Year Plan</NavItem>
+                      <NavItem to="/">My Plan</NavItem>
                       <NavItem to="/courses">Courses</NavItem>
                     </nav>
                     <SaveBar />
@@ -36,8 +34,7 @@ export default function App() {
                 </header>
                 <main className="mx-auto max-w-6xl px-4 py-6">
                   <Routes>
-                    <Route path="/" element={<ProgressPage />} />
-                    <Route path="/plan" element={<PlanPage />} />
+                    <Route path="/" element={<PlanPage />} />
                     <Route path="/courses" element={<CoursesPage />} />
                     <Route path="/courses/:code" element={<CoursePage />} />
                   </Routes>

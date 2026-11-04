@@ -1,5 +1,5 @@
 // Keaan Mirchandani
-// Tests completed courses: marking them, units, and requirement status.
+// Tests completed courses: marking them, units, requirement status, and requirement progress.
 import { describe, expect, it } from 'vitest';
 import { DegreePlan, UNITS_TO_GRADUATE } from '../src/DegreePlan';
 import { DegreeRequirement } from '../src/DegreeRequirement';
@@ -69,6 +69,31 @@ describe('DegreePlan completed courses', () => {
       .markCompleted('CSCI 10')
       .markCompleted('CSCI 60');
     expect(plan.completedRequirementStatus([intro])[0].satisfied).toBe(true);
+  });
+});
+
+describe('DegreePlan.requirementProgress', () => {
+  const stateOf = (plan: DegreePlan) => plan.requirementProgress([intro])[0];
+
+  it('is missing when the plan does not cover the requirement', () => {
+    const progress = stateOf(DegreePlan.empty(catalog).addCourse(0, 'CSCI 10').markCompleted('CSCI 10'));
+    expect(progress.state).toBe('missing');
+    expect(progress.missing).toEqual(['CSCI 60']);
+    expect(progress.stillNeeded).toBe(1);
+  });
+
+  it('is planned when the plan covers it but not every course is completed', () => {
+    const plan = DegreePlan.empty(catalog).addCourse(0, 'CSCI 10').addCourse(1, 'CSCI 60').markCompleted('CSCI 10');
+    expect(stateOf(plan).state).toBe('planned');
+  });
+
+  it('is completed when the completed courses meet it', () => {
+    const plan = DegreePlan.empty(catalog)
+      .addCourse(0, 'CSCI 10')
+      .addCourse(1, 'CSCI 60')
+      .markCompleted('CSCI 10')
+      .markCompleted('CSCI 60');
+    expect(stateOf(plan).state).toBe('completed');
   });
 });
 
