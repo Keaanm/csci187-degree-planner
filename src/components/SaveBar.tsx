@@ -10,7 +10,9 @@ export default function SaveBar() {
           Couldn't save: {saveError}
         </span>
       )}
-      <span className="text-muted-foreground">{saved ? savedText(lastSaved) : 'Unsaved changes'}</span>
+      <span className={saved ? 'text-muted-foreground' : 'font-medium text-amber-700 dark:text-amber-500'}>
+        {saved ? savedText(lastSaved) : 'Unsaved changes'}
+      </span>
       <Button size="sm" onClick={save} disabled={saved || saving}>
         {saving ? 'Saving…' : 'Save plan'}
       </Button>
@@ -20,5 +22,5 @@ export default function SaveBar() {
 
 function savedText(lastSaved: string | null): string {
   if (!lastSaved) return 'Not saved yet';
-  return `Saved ${new Date(lastSaved).toLocaleString()}`;
+  return `Saved ${new Date(lastSaved).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
 }
