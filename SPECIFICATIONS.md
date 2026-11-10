@@ -34,7 +34,7 @@ These specifications cover the MVP. The plan logic lives in `src/DegreePlan.ts`,
    A summary at the top of the plan page shows units completed and units planned out of the units the Software emphasis requirements need (for a "choose N" requirement, the N courses with the fewest units), how many are not planned yet, and how many requirements are completed and how many more the plan covers. A new student with an empty plan is told to start by adding the courses they have already taken.
 
 8. **Look up courses.**
-   The course lookup page lists every offered course and filters it by code, title or description as the student types. Each course shows whether it is in the plan or completed.
+   The course lookup page lists every offered course and filters it by code, title or description as the student types. The search stays in the page address, so "All courses" on a course page goes back to the same results. Each course shows whether it is in the plan or completed.
 
 9. **Show course details.**
    Each course has a page with its title, units, description, prerequisites (either/or groups shown with "or"), the degree requirements it counts toward, and the courses it is a prerequisite for. Prerequisites and the courses it is a prerequisite for link to their own pages.
