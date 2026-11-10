@@ -6,7 +6,6 @@ import LoadError from '@/components/LoadError';
 import Logo from '@/components/Logo';
 import NavItem from '@/components/NavItem';
 import PlanProvider from '@/components/PlanProvider';
-import SaveBar from '@/components/SaveBar';
 import CoursePage from '@/pages/CoursePage';
 import CoursesPage from '@/pages/CoursesPage';
 import PlanPage from '@/pages/PlanPage';
@@ -19,7 +18,7 @@ export default function App() {
           <ErrorBoundary onReset={reset} FallbackComponent={LoadError}>
             <Suspense fallback={<p className="px-4 py-6">Loading…</p>}>
               <PlanProvider>
-                <header className="sticky top-0 z-10 border-b bg-background">
+                <header className="border-b">
                   <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
                     <nav className="flex items-center gap-5">
                       <Link to="/" className="flex items-center gap-2 font-semibold">
@@ -29,7 +28,6 @@ export default function App() {
                       <NavItem to="/">My Plan</NavItem>
                       <NavItem to="/courses">Courses</NavItem>
                     </nav>
-                    <SaveBar />
                   </div>
                 </header>
                 <main className="mx-auto max-w-6xl px-4 py-6">

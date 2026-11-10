@@ -3,22 +3,22 @@ import CoursePicker from '@/components/CoursePicker';
 import PlannedCourse from '@/components/PlannedCourse';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { MAX_UNITS_PER_QUARTER, TERMS, quarterLabel } from '@/DegreePlan';
-import type { PrerequisiteWarning } from '@/DegreePlan';
+import type { DegreePlan, PrerequisiteWarning } from '@/DegreePlan';
 import { usePlan } from '@/PlanContext';
 import { useCourses } from '@/queries';
 
 export default function QuarterCard({ quarter, warnings }: { quarter: number; warnings: PrerequisiteWarning[] }) {
   const courses = useCourses();
   const { plan, changePlan } = usePlan();
-  const [error, setError] = useState('');
+  // The error belongs to the plan it happened on, so any later change clears it.
+  const [error, setError] = useState<{ plan: DegreePlan; message: string } | null>(null);
   const available = courses.filter((c) => !plan.hasCourse(c.code));
 
   function add(code: string) {
     try {
       changePlan(plan.addCourse(quarter, code));
-      setError('');
     } catch (e) {
-      setError((e as Error).message);
+      setError({ plan, message: (e as Error).message });
     }
   }
 
@@ -44,9 +44,9 @@ export default function QuarterCard({ quarter, warnings }: { quarter: number; wa
         {/* mt-auto lines the pickers up across a row. */}
         <div className="mt-auto space-y-2">
           <CoursePicker courses={available} label={`Add a course to ${quarterLabel(quarter)}`} onPick={add} />
-          {error && (
+          {error?.plan === plan && (
             <p className="text-xs text-destructive" role="alert">
-              {error}
+              {error.message}
             </p>
           )}
         </div>

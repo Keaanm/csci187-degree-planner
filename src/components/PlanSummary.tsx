@@ -1,16 +1,13 @@
 import { Card, CardContent } from '@/components/ui/card';
-import { UNITS_TO_GRADUATE } from '@/DegreePlan';
 import { usePlan } from '@/PlanContext';
 import { useRequirements } from '@/queries';
-
-const percent = (units: number) => `${Math.min(100, (units / UNITS_TO_GRADUATE) * 100)}%`;
 
 export default function PlanSummary() {
   const requirements = useRequirements();
   const { plan } = usePlan();
-  const completedUnits = plan.completedUnits();
-  const plannedUnits = plan.totalUnits() - completedUnits;
-  const unplannedUnits = Math.max(0, UNITS_TO_GRADUATE - plan.totalUnits());
+  const units = plan.requirementUnits(requirements);
+  const unplanned = units.needed - units.completed - units.planned;
+  const percent = (n: number) => `${(n / units.needed) * 100}%`;
   const progress = plan.requirementProgress(requirements);
   const completed = progress.filter((r) => r.state === 'completed').length;
   const covered = progress.filter((r) => r.state === 'planned').length;
@@ -18,30 +15,27 @@ export default function PlanSummary() {
   return (
     <Card className="gap-4">
       <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h1 className="text-2xl font-semibold">My Plan</h1>
-          <p className="text-sm">
-            {completed} of {progress.length} requirements completed
-            {covered > 0 && <span className="text-muted-foreground">, {covered} more covered by your plan</span>}
-          </p>
-        </div>
+        <p className="text-sm">
+          {completed} of {progress.length} requirements completed
+          {covered > 0 && <span className="text-muted-foreground">, {covered} more covered by your plan</span>}
+        </p>
         <div
           className="flex h-3 overflow-hidden rounded-full bg-muted"
           role="img"
-          aria-label={`${completedUnits} units completed and ${plannedUnits} planned, of ${UNITS_TO_GRADUATE}`}
+          aria-label={`${units.completed} units completed and ${units.planned} planned, of ${units.needed}`}
         >
-          <div className="bg-primary" style={{ width: percent(completedUnits) }} />
-          <div className="bg-primary/35" style={{ width: percent(plannedUnits) }} />
+          <div className="bg-primary" style={{ width: percent(units.completed) }} />
+          <div className="bg-primary/35" style={{ width: percent(units.planned) }} />
         </div>
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground">
           <span className="flex items-center gap-1.5">
-            <span className="size-2.5 rounded-full bg-primary" /> {completedUnits} units completed
+            <span className="size-2.5 rounded-full bg-primary" /> {units.completed} units completed
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="size-2.5 rounded-full bg-primary/35" /> {plannedUnits} planned
+            <span className="size-2.5 rounded-full bg-primary/35" /> {units.planned} planned
           </span>
           <span>
-            {unplannedUnits} not planned yet, of {UNITS_TO_GRADUATE} to graduate
+            {unplanned} not planned yet, of the {units.needed} units these requirements need
           </span>
         </div>
         <p className="text-sm text-muted-foreground">

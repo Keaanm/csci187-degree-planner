@@ -5,7 +5,6 @@ export const YEARS = 4;
 export const TERMS = ['Fall', 'Winter', 'Spring'] as const;
 export const QUARTER_COUNT = YEARS * TERMS.length;
 export const MAX_UNITS_PER_QUARTER = 18;
-export const UNITS_TO_GRADUATE = 175;
 
 // Label for a quarter index, e.g. 0 -> "Year 1 Fall", 4 -> "Year 2 Winter".
 export function quarterLabel(quarter: number): string {
@@ -30,6 +29,12 @@ export interface RequirementStatus {
 // completed: the completed courses meet it. planned: the rest of the plan covers it.
 export interface RequirementProgress extends RequirementStatus {
   state: 'completed' | 'planned' | 'missing';
+}
+
+export interface RequirementUnits {
+  needed: number;
+  completed: number;
+  planned: number;
 }
 
 type CourseStatus = 'planned' | 'completed';
@@ -123,8 +128,23 @@ export class DegreePlan {
     return this.quarters.flat().filter((c) => this.isCompleted(c.code)).reduce((sum, c) => sum + c.units, 0);
   }
 
-  remainingUnits(): number {
-    return Math.max(0, UNITS_TO_GRADUATE - this.completedUnits());
+  // Units the requirements take (choosing the fewest units in "choose N" requirements),
+  // and how many of them the completed and the planned courses cover.
+  requirementUnits(requirements: readonly DegreeRequirement[]): RequirementUnits {
+    const unitsOf = (codes: string[]) =>
+      codes.reduce((sum, code) => sum + (this.offered.find((c) => c.code === code)?.units ?? 0), 0);
+    const totals = { needed: 0, completed: 0, planned: 0 };
+    for (const { courses, count } of requirements) {
+      const fewest = [...courses].sort((a, b) => unitsOf([a]) - unitsOf([b])).slice(0, count);
+      const completed = courses.filter((c) => this.isCompleted(c)).slice(0, count);
+      const planned = courses
+        .filter((c) => this.hasCourse(c) && !this.isCompleted(c))
+        .slice(0, count - completed.length);
+      totals.needed += unitsOf(fewest);
+      totals.completed += unitsOf(completed);
+      totals.planned += unitsOf(planned);
+    }
+    return totals;
   }
 
   // Courses placed before (or in the same quarter as) one of their prerequisites,

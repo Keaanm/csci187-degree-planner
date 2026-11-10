@@ -76,4 +76,26 @@ describe('plan page', () => {
     expect(screen.getByText("Year 1 Fall can't have more than 18 units")).toBeTruthy();
     expect(screen.getByText('Add MATH 13 to…')).toBeTruthy();
   });
+
+  it('clears a quarter error once the plan changes', async () => {
+    // The course search menu uses browser APIs that jsdom doesn't have.
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    Element.prototype.scrollIntoView = () => {};
+    renderPage({
+      lastSaved: '2026-11-01T18:00:00.000Z',
+      courses: ['CSCI 10', 'CSCI 60', 'MATH 11', 'MATH 12'].map((code) => ({ code, quarter: 0, status: 'planned' })),
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Add a course to Year 1 Fall' }));
+    fireEvent.click(screen.getByRole('option', { name: /^MATH 13/ }));
+    const error = "Year 1 Fall can't have more than 18 units";
+    expect(screen.getByText(error)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove MATH 12' }));
+    expect(screen.queryByText(error)).toBeNull();
+  });
+
+  it('has the save button on the plan page', async () => {
+    renderPage();
+    expect(await screen.findByRole('button', { name: /save plan/i })).toBeTruthy();
+  });
 });
