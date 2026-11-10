@@ -10,9 +10,8 @@ export default function SaveBar() {
           Couldn't save: {saveError}
         </span>
       )}
-      <span className={saved ? 'text-muted-foreground' : 'font-medium text-amber-700 dark:text-amber-500'}>
-        {saved ? savedText(lastSaved) : 'Unsaved changes'}
-      </span>
+      {!saved && <span className="font-medium text-amber-700 dark:text-amber-500">Unsaved changes</span>}
+      <span className="text-muted-foreground">{savedText(lastSaved)}</span>
       <Button size="sm" onClick={save} disabled={saved || saving}>
         {saving ? 'Saving…' : 'Save plan'}
       </Button>

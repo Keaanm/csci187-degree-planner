@@ -74,9 +74,14 @@ async function getJson<T>(fetchFn: Fetch, url: string): Promise<T> {
 
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    throw new Error((await errorMessage(response)) ?? `The server returned ${response.status}`);
+    throw new Error((await errorMessage(response)) ?? fallbackMessage(response.status));
   }
   return (await response.json()) as T;
+}
+
+// A 5xx with no message usually means the dev proxy couldn't reach the backend.
+function fallbackMessage(status: number): string {
+  return status >= 500 ? `The server can't be reached (${status})` : `The server returned ${status}`;
 }
 
 // The backend sends { "error": "..." } with a readable message.

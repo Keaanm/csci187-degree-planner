@@ -1,5 +1,6 @@
 #include "Routes.h"
 
+#include <cstdint>
 #include <iostream>
 
 using nlohmann::json;
@@ -43,8 +44,10 @@ std::vector<PlanRow> parsePlanBody(const std::string& body) {
       throw BadRequest("Each course needs an integer \"quarter\"");
     }
     if (!c.contains("status") || !c["status"].is_string()) throw BadRequest("Each course needs a string \"status\"");
-    PlanRow row{c["code"], c["quarter"], c["status"]};
-    if (row.quarter < 0 || row.quarter > 11) throw BadRequest("\"quarter\" must be 0 to 11");
+    // Check the range before narrowing to int, so 4294967296 isn't read as 0.
+    auto quarter = c["quarter"].get<std::int64_t>();
+    if (quarter < 0 || quarter > 11) throw BadRequest("\"quarter\" must be 0 to 11");
+    PlanRow row{c["code"], static_cast<int>(quarter), c["status"]};
     if (row.status != "planned" && row.status != "completed") {
       throw BadRequest("\"status\" must be \"planned\" or \"completed\"");
     }

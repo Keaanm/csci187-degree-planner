@@ -94,6 +94,40 @@ describe('plan page', () => {
     expect(screen.queryByText(error)).toBeNull();
   });
 
+  it('only offers courses that are not in the plan yet', async () => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    Element.prototype.scrollIntoView = () => {};
+    renderPage({ lastSaved: '2026-11-01T18:00:00.000Z', courses: [{ code: 'CSCI 10', quarter: 0, status: 'planned' }] });
+    fireEvent.click(await screen.findByRole('button', { name: 'Add a course to Year 1 Winter' }));
+    expect(screen.queryByRole('option', { name: /^CSCI 10/ })).toBeNull();
+    expect(screen.getByRole('option', { name: /^CSCI 60/ })).toBeTruthy();
+  });
+
+  it('warns on a course placed before its prerequisites', async () => {
+    renderPage({
+      lastSaved: '2026-11-01T18:00:00.000Z',
+      courses: [
+        { code: 'CSCI 60', quarter: 0, status: 'planned' },
+        { code: 'CSCI 10', quarter: 0, status: 'planned' },
+      ],
+    });
+    const course = (await screen.findByRole('button', { name: 'CSCI 60 completed' })).closest('li') as HTMLElement;
+    expect(within(course).getByRole('alert').textContent).toBe('Take CSCI 10 in an earlier quarter first');
+  });
+
+  it('sums units completed, planned and not planned yet', async () => {
+    renderPage({
+      lastSaved: '2026-11-01T18:00:00.000Z',
+      courses: [
+        { code: 'CSCI 10', quarter: 0, status: 'completed' },
+        { code: 'MATH 11', quarter: 0, status: 'planned' },
+      ],
+    });
+    expect(await screen.findByText(/5 units completed/)).toBeTruthy();
+    expect(screen.getByText(/4 planned/)).toBeTruthy();
+    expect(screen.getByText('93 not planned yet, of the 102 units these requirements need')).toBeTruthy();
+  });
+
   it('has the save button on the plan page', async () => {
     renderPage();
     expect(await screen.findByRole('button', { name: /save plan/i })).toBeTruthy();
