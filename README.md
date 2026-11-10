@@ -66,8 +66,17 @@ The user requirements are in [REQUIREMENTS.md](REQUIREMENTS.md). The functional 
 
 ## Design
 
+Final project design (what we're building next):
+
+- [ER diagram V3](docs/er-diagram-v3.drawio): the database for the final project. Adds students, sessions, programs (major, emphases, University Core), other credit, and retakes.
+- [CRC diagram V5](docs/crc-diagram-v5.drawio): the domain classes for the final project. Adds Student, Program, PlannedCourse and OtherCredit.
+
+As built now (the MVP):
+
 - [ER diagram V2](docs/er-diagram-v2.drawio): the database tables, matching `server/src/Database.cpp`.
 - [CRC diagram V4](docs/crc-diagram-v4.drawio): the domain classes, their responsibilities, and what each one knows.
+
+Once the final project is built, the V2 and V4 diagrams will be removed.
 
 To view a diagram, open [app.diagrams.net](https://app.diagrams.net) and choose **File → Open from → Device**.
 
