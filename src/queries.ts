@@ -1,6 +1,8 @@
+import { useMemo } from 'react';
 import { queryOptions, useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { PLAN_ID, fetchCourses, fetchPlan, fetchRequirements, savePlan } from './api';
 import type { LoadedPlan } from './api';
+import { Catalog } from './Catalog';
 import type { DegreePlan } from './DegreePlan';
 
 // Loading and errors are handled by <Suspense> and <ErrorBoundary> in App.
@@ -15,6 +17,12 @@ export function useCourses() {
 
 export function useRequirements() {
   return useSuspenseQuery(requirementsQuery).data;
+}
+
+export function useCatalog() {
+  const courses = useCourses();
+  const requirements = useRequirements();
+  return useMemo(() => new Catalog(courses, requirements), [courses, requirements]);
 }
 
 // The plan only accepts courses the server offers, so it loads after the courses.

@@ -3,17 +3,15 @@ import BackLink from '@/components/BackLink';
 import CourseLink from '@/components/CourseLink';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { coursesRequiring, requirementsSatisfiedBy } from '@/courseLookup';
 import { quarterLabel } from '@/DegreePlan';
 import { usePlan } from '@/PlanContext';
-import { useCourses, useRequirements } from '@/queries';
+import { useCatalog } from '@/queries';
 
 export default function CoursePage() {
   const { code = '' } = useParams();
-  const courses = useCourses();
-  const requirements = useRequirements();
+  const catalog = useCatalog();
   const { plan } = usePlan();
-  const course = courses.find((c) => c.code === code);
+  const course = catalog.find(code);
 
   if (!course) {
     return (
@@ -24,8 +22,8 @@ export default function CoursePage() {
     );
   }
 
-  const satisfies = requirementsSatisfiedBy(requirements, course.code);
-  const requiredBy = coursesRequiring(courses, course.code);
+  const satisfies = catalog.requirementsSatisfiedBy(course.code);
+  const requiredBy = catalog.coursesRequiring(course.code);
   const quarter = plan.quarters.findIndex((q) => q.some((c) => c.code === course.code));
 
   return (

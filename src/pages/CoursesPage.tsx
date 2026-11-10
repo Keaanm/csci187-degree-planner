@@ -3,15 +3,14 @@ import { Link } from 'react-router';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { searchCourses } from '@/courseLookup';
 import { usePlan } from '@/PlanContext';
-import { useCourses } from '@/queries';
+import { useCatalog } from '@/queries';
 
 export default function CoursesPage() {
-  const courses = useCourses();
+  const catalog = useCatalog();
   const { plan } = usePlan();
   const [search, setSearch] = useState('');
-  const matches = searchCourses(courses, search);
+  const matches = catalog.search(search);
 
   return (
     <div className="space-y-6">
@@ -25,7 +24,7 @@ export default function CoursesPage() {
         className="max-w-xl"
       />
       <p className="text-sm text-muted-foreground">
-        {matches.length} of {courses.length} courses
+        {matches.length} of {catalog.courses.length} courses
       </p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {matches.map((c) => (
