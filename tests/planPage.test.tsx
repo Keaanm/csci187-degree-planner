@@ -128,8 +128,9 @@ describe('plan page', () => {
     expect(screen.getByText('93 not planned yet, of the 102 units these requirements need')).toBeTruthy();
   });
 
-  it('has the save button on the plan page', async () => {
+  it('shows the save status on the plan page', async () => {
     renderPage();
-    expect(await screen.findByRole('button', { name: /save plan/i })).toBeTruthy();
+    expect(await screen.findByRole('status')).toBeTruthy();
+    expect(screen.getByRole('status').textContent).toBe('Not saved yet');
   });
 });
