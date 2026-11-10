@@ -10,12 +10,13 @@ import SaveBar from '../src/components/SaveBar';
 import { usePlan } from '../src/PlanContext';
 import { fakeBackend } from './fakeBackend';
 
-// Stands in for the plan page: one button that edits the plan, and the plan's courses.
+// Stands in for the plan page: buttons that edit the plan, and the plan's courses.
 function PlanEditor() {
   const { plan, changePlan } = usePlan();
   return (
     <>
       <button onClick={() => changePlan(plan.addCourse(0, 'CSCI 10').markCompleted('CSCI 10'))}>Add CSCI 10</button>
+      <button onClick={() => changePlan(plan.removeCourse(0, 'CSCI 10'))}>Undo</button>
       <output>{plan.toRows().map((r) => `${r.code} ${r.status}`).join(', ') || 'empty'}</output>
     </>
   );
@@ -65,6 +66,15 @@ describe('saving the plan', () => {
     expect(saveButton().hasAttribute('disabled')).toBe(false);
   });
 
+  it('shows the plan as saved again after an edit is undone', async () => {
+    fakeBackend();
+    renderApp();
+    fireEvent.click(await screen.findByText('Add CSCI 10'));
+    fireEvent.click(screen.getByText('Undo'));
+    expect(screen.getByText('Not saved yet')).toBeTruthy();
+    expect(saveButton().hasAttribute('disabled')).toBe(true);
+  });
+
   it('sends the whole plan, with completed courses, when Save is clicked', async () => {
     const puts = fakeBackend();
     renderApp();
@@ -83,6 +93,24 @@ describe('saving the plan', () => {
     expect(await screen.findByText(/Couldn't save: CSCI 10 is not an offered course/)).toBeTruthy();
     await waitFor(() => expect(saveButton().hasAttribute('disabled')).toBe(false));
     expect(screen.getByText('Unsaved changes')).toBeTruthy();
+  });
+
+  it('clears the save error once the plan changes', async () => {
+    fakeBackend({ saveError: 'CSCI 10 is not an offered course' });
+    renderApp();
+    fireEvent.click(await screen.findByText('Add CSCI 10'));
+    fireEvent.click(saveButton());
+    expect(await screen.findByText(/Couldn't save/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Undo'));
+    expect(screen.queryByText(/Couldn't save/)).toBeNull();
+  });
+
+  it('shows when the plan was last saved next to unsaved changes', async () => {
+    fakeBackend({ saved: { lastSaved: '2026-11-01T18:00:00.000Z', courses: [] } });
+    renderApp();
+    fireEvent.click(await screen.findByText('Add CSCI 10'));
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
+    expect(screen.getByText(/^Saved /)).toBeTruthy();
   });
 
   it('loads the saved plan, including which courses are completed', async () => {

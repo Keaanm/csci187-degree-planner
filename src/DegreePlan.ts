@@ -140,9 +140,12 @@ export class DegreePlan {
       const planned = courses
         .filter((c) => this.hasCourse(c) && !this.isCompleted(c))
         .slice(0, count - completed.length);
-      totals.needed += unitsOf(fewest);
-      totals.completed += unitsOf(completed);
-      totals.planned += unitsOf(planned);
+      // Capped so extra or larger courses never count past what the requirement needs.
+      const needed = unitsOf(fewest);
+      const completedUnits = Math.min(unitsOf(completed), needed);
+      totals.needed += needed;
+      totals.completed += completedUnits;
+      totals.planned += Math.min(unitsOf(planned), needed - completedUnits);
     }
     return totals;
   }
@@ -186,6 +189,11 @@ export class DegreePlan {
 
   completedCodes(): string[] {
     return this.courseCodes().filter((code) => this.isCompleted(code));
+  }
+
+  // Same courses in the same quarters and order, with the same completed marks.
+  sameAs(other: DegreePlan): boolean {
+    return JSON.stringify(this.toRows()) === JSON.stringify(other.toRows());
   }
 
   toRows(): PlanCourse[] {

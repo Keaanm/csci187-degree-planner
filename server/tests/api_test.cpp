@@ -122,6 +122,7 @@ int main() {
         R"({"courses": "CSCI 10"})",
         R"({"courses": [{"code": "CSCI 10", "quarter": 12, "status": "planned"}]})",
         R"({"courses": [{"code": "CSCI 10", "quarter": -1, "status": "planned"}]})",
+        R"({"courses": [{"code": "CSCI 10", "quarter": 4294967296, "status": "planned"}]})",
         R"({"courses": [{"code": "CSCI 10", "quarter": 0, "status": "done"}]})",
         R"({"courses": [{"code": "CSCI 10", "quarter": "0", "status": "planned"}]})",
         R"({"courses": [{"code": "FAKE 1", "quarter": 0, "status": "planned"}]})",

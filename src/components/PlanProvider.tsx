@@ -10,7 +10,8 @@ export default function PlanProvider({ children }: { children: ReactNode }) {
   const [draft, setDraft] = useState<DegreePlan | null>(null);
   const savePlan = useSavePlan();
   const plan = draft ?? savedPlan;
-  const saved = draft === null;
+  // Undoing every edit counts as saved.
+  const saved = draft === null || draft.sameAs(savedPlan);
 
   useEffect(() => {
     if (saved) return;
@@ -33,7 +34,8 @@ export default function PlanProvider({ children }: { children: ReactNode }) {
         changePlan: setDraft,
         save,
         saving: savePlan.isPending,
-        saveError: savePlan.error?.message ?? '',
+        // Only for the plan that failed to save, so any edit clears it.
+        saveError: savePlan.variables === plan ? (savePlan.error?.message ?? '') : '',
       }}
     >
       {children}

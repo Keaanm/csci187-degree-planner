@@ -116,6 +116,13 @@ describe('DegreePlan.requirementUnits', () => {
     expect(plan.requirementUnits([science])).toEqual({ needed: 5, completed: 5, planned: 0 });
   });
 
+  it('never counts more units than a choose-N requirement needs', () => {
+    // CSCI 60 is 5 units and CSCI 61 is 4, so the requirement needs 4.
+    const either = new DegreeRequirement('Either', ['CSCI 60', 'CSCI 61'], 1);
+    const plan = DegreePlan.empty(catalog).addCourse(0, 'CSCI 60').addCourse(1, 'CSCI 61').markCompleted('CSCI 60');
+    expect(plan.requirementUnits([either])).toEqual({ needed: 4, completed: 4, planned: 0 });
+  });
+
   it('ignores courses that no requirement lists', () => {
     const plan = DegreePlan.empty(catalog).addCourse(0, 'CSEN 10').markCompleted('CSEN 10');
     expect(plan.requirementUnits([intro]).completed).toBe(0);
@@ -123,6 +130,14 @@ describe('DegreePlan.requirementUnits', () => {
 });
 
 describe('DegreePlan rows for the API', () => {
+  it('is the same as another plan with the same courses, quarters and completed marks', () => {
+    const plan = DegreePlan.empty(catalog).addCourse(0, 'CSCI 10');
+    expect(plan.sameAs(DegreePlan.empty(catalog).addCourse(0, 'CSCI 10'))).toBe(true);
+    expect(plan.sameAs(plan.markCompleted('CSCI 10'))).toBe(false);
+    expect(plan.sameAs(DegreePlan.empty(catalog).addCourse(1, 'CSCI 10'))).toBe(false);
+    expect(plan.addCourse(0, 'MATH 11').removeCourse(0, 'MATH 11').sameAs(plan)).toBe(true);
+  });
+
   it('turns the plan into one row per course with its quarter and status', () => {
     const plan = DegreePlan.empty(catalog).addCourse(0, 'CSCI 10').addCourse(4, 'CSCI 60').markCompleted('CSCI 10');
     expect(plan.toRows()).toEqual([

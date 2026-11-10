@@ -106,8 +106,8 @@ describe('API client', () => {
   });
 
   it('throws when the server returns an error', async () => {
-    await expect(fetchCourses(fakeFetch(500).fetchFn)).rejects.toThrow('The server returned 500');
-    await expect(fetchPlan(catalog, 1, fakeFetch(500).fetchFn)).rejects.toThrow('The server returned 500');
+    await expect(fetchCourses(fakeFetch(500).fetchFn)).rejects.toThrow("The server can't be reached (500)");
+    await expect(fetchPlan(catalog, 1, fakeFetch(500).fetchFn)).rejects.toThrow("The server can't be reached (500)");
     await expect(savePlan(DegreePlan.empty(catalog), 1, fakeFetch(400).fetchFn)).rejects.toThrow('The server returned 400');
   });
 });
