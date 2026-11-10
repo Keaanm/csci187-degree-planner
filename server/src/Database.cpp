@@ -120,9 +120,32 @@ void Database::exec(const std::string& sql) {
   }
 }
 
+bool Database::hasColumn(const std::string& table, const std::string& column) {
+  Statement info(db_, "SELECT 1 FROM pragma_table_info(?) WHERE name = ?");
+  info.bind(1, table).bind(2, column);
+  return info.step();
+}
+
 // Tables from the ER diagram (see API.md).
 void Database::createTables() {
+  // Plans saved before accounts have no owner, so no student could ever reach them.
+  // Drop them so degree_plan is recreated with student_id below.
+  if (hasColumn("degree_plan", "plan_id") && !hasColumn("degree_plan", "student_id")) {
+    exec("DROP TABLE IF EXISTS plan_course; DROP TABLE degree_plan;");
+  }
   exec(R"sql(
+    CREATE TABLE IF NOT EXISTS student (
+      student_id    INTEGER PRIMARY KEY,
+      email         TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      start_year    INTEGER NOT NULL
+    );
+    -- A logged-in browser. token is the value of the session cookie.
+    CREATE TABLE IF NOT EXISTS session (
+      token      TEXT PRIMARY KEY,
+      student_id INTEGER NOT NULL REFERENCES student(student_id) ON DELETE CASCADE,
+      expires_at INTEGER NOT NULL  -- Unix time in seconds
+    );
     CREATE TABLE IF NOT EXISTS course (
       course_id   INTEGER PRIMARY KEY,
       code        TEXT NOT NULL UNIQUE,
@@ -150,10 +173,14 @@ void Database::createTables() {
       position       INTEGER NOT NULL,
       PRIMARY KEY (course_id, requirement_id)
     );
+    -- Not UNIQUE on student_id: the final ER diagram lets a student own several plans.
+    -- For now the API only uses each student's first plan (see Database::plan).
     CREATE TABLE IF NOT EXISTS degree_plan (
       plan_id    INTEGER PRIMARY KEY,
+      student_id INTEGER NOT NULL REFERENCES student(student_id) ON DELETE CASCADE,
       last_saved TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS degree_plan_student ON degree_plan(student_id);
     -- position keeps the order courses were added within each quarter.
     CREATE TABLE IF NOT EXISTS plan_course (
       plan_id   INTEGER NOT NULL REFERENCES degree_plan(plan_id) ON DELETE CASCADE,
@@ -308,18 +335,27 @@ json Database::requirements() {
   return result;
 }
 
-std::optional<json> Database::plan(int planId) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  Statement find(db_, "SELECT last_saved FROM degree_plan WHERE plan_id = ?");
-  find.bind(1, planId);
+std::optional<int> Database::firstPlanId(int studentId) {
+  Statement find(db_, "SELECT plan_id FROM degree_plan WHERE student_id = ? ORDER BY plan_id LIMIT 1");
+  find.bind(1, studentId);
   if (!find.step()) return std::nullopt;
-  json result = {{"planId", planId}, {"lastSaved", find.textAt(0)}, {"courses", json::array()}};
+  return find.intAt(0);
+}
+
+std::optional<json> Database::plan(int studentId) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  auto planId = firstPlanId(studentId);
+  if (!planId) return std::nullopt;
+  Statement find(db_, "SELECT last_saved FROM degree_plan WHERE plan_id = ?");
+  find.bind(1, *planId);
+  find.step();
+  json result = {{"planId", *planId}, {"lastSaved", find.textAt(0)}, {"courses", json::array()}};
 
   Statement rows(db_, R"sql(
     SELECT c.code, pc.quarter, pc.status FROM plan_course pc
     JOIN course c ON c.course_id = pc.course_id
     WHERE pc.plan_id = ? ORDER BY pc.quarter, pc.position)sql");
-  rows.bind(1, planId);
+  rows.bind(1, *planId);
   while (rows.step()) {
     result["courses"].push_back(
         {{"code", rows.textAt(0)}, {"quarter", rows.intAt(1)}, {"status", rows.textAt(2)}});
@@ -327,7 +363,7 @@ std::optional<json> Database::plan(int planId) {
   return result;
 }
 
-std::string Database::savePlan(int planId, const std::vector<PlanRow>& rows) {
+SavedPlan Database::savePlan(int studentId, const std::vector<PlanRow>& rows) {
   std::lock_guard<std::mutex> lock(mutex_);
 
   // Check every row before writing anything.
@@ -348,13 +384,21 @@ std::string Database::savePlan(int planId, const std::vector<PlanRow>& rows) {
   }
 
   std::string lastSaved = nowIso();
+  int planId;
   exec("BEGIN");
   try {
-    Statement upsert(db_, R"sql(
-      INSERT INTO degree_plan (plan_id, last_saved) VALUES (?, ?)
-      ON CONFLICT(plan_id) DO UPDATE SET last_saved = excluded.last_saved)sql");
-    upsert.bind(1, planId).bind(2, lastSaved);
-    upsert.run();
+    // The student's first plan, created on their first save.
+    if (auto existing = firstPlanId(studentId)) {
+      planId = *existing;
+      Statement touch(db_, "UPDATE degree_plan SET last_saved = ? WHERE plan_id = ?");
+      touch.bind(1, lastSaved).bind(2, planId);
+      touch.run();
+    } else {
+      Statement create(db_, "INSERT INTO degree_plan (student_id, last_saved) VALUES (?, ?)");
+      create.bind(1, studentId).bind(2, lastSaved);
+      create.run();
+      planId = static_cast<int>(sqlite3_last_insert_rowid(db_));
+    }
 
     Statement clear(db_, "DELETE FROM plan_course WHERE plan_id = ?");
     clear.bind(1, planId);
@@ -372,5 +416,57 @@ std::string Database::savePlan(int planId, const std::vector<PlanRow>& rows) {
     exec("ROLLBACK");
     throw;
   }
-  return lastSaved;
+  return {planId, lastSaved};
+}
+
+int Database::createStudent(const std::string& email, const std::string& passwordHash, int startYear) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  Statement taken(db_, "SELECT 1 FROM student WHERE email = ?");
+  taken.bind(1, email);
+  if (taken.step()) throw EmailTaken("An account with that email already exists");
+
+  Statement insert(db_, "INSERT INTO student (email, password_hash, start_year) VALUES (?, ?, ?)");
+  insert.bind(1, email).bind(2, passwordHash).bind(3, startYear);
+  insert.run();
+  return static_cast<int>(sqlite3_last_insert_rowid(db_));
+}
+
+std::optional<StudentLogin> Database::findStudentByEmail(const std::string& email) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  Statement find(db_, "SELECT student_id, password_hash FROM student WHERE email = ?");
+  find.bind(1, email);
+  if (!find.step()) return std::nullopt;
+  return StudentLogin{find.intAt(0), find.textAt(1)};
+}
+
+std::optional<json> Database::student(int studentId) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  Statement find(db_, "SELECT email, start_year FROM student WHERE student_id = ?");
+  find.bind(1, studentId);
+  if (!find.step()) return std::nullopt;
+  return json{{"email", find.textAt(0)}, {"startYear", find.intAt(1)}};
+}
+
+void Database::createSession(const std::string& token, int studentId, int lifetimeSeconds) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  // Clean up expired sessions here so the table doesn't grow forever.
+  exec("DELETE FROM session WHERE expires_at <= unixepoch()");
+  Statement insert(db_, "INSERT INTO session (token, student_id, expires_at) VALUES (?, ?, unixepoch() + ?)");
+  insert.bind(1, token).bind(2, studentId).bind(3, lifetimeSeconds);
+  insert.run();
+}
+
+std::optional<int> Database::studentForSession(const std::string& token) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  Statement find(db_, "SELECT student_id FROM session WHERE token = ? AND expires_at > unixepoch()");
+  find.bind(1, token);
+  if (!find.step()) return std::nullopt;
+  return find.intAt(0);
+}
+
+void Database::deleteSession(const std::string& token) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  Statement remove(db_, "DELETE FROM session WHERE token = ?");
+  remove.bind(1, token);
+  remove.run();
 }
