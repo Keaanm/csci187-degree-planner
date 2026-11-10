@@ -1,17 +1,32 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { DegreePlan } from '@/DegreePlan';
 import { PlanContext } from '@/PlanContext';
 import { useSavePlan, useSavedPlan } from '@/queries';
 
-// Edits stay in a draft until the student saves.
-export default function PlanProvider({ children }: { children: ReactNode }) {
+export const AUTOSAVE_DELAY_MS = 1000;
+
+// Edits stay in a draft until they are saved automatically, once the student stops
+// editing for `autosaveDelay` ms.
+export default function PlanProvider({ children, autosaveDelay = AUTOSAVE_DELAY_MS }: {
+  children: ReactNode;
+  autosaveDelay?: number;
+}) {
   const { plan: savedPlan, lastSaved } = useSavedPlan();
   const [draft, setDraft] = useState<DegreePlan | null>(null);
-  const savePlan = useSavePlan();
+  const { mutate, isPending, isError, variables, error } = useSavePlan();
   const plan = draft ?? savedPlan;
   // Undoing every edit counts as saved.
   const saved = draft === null || draft.sameAs(savedPlan);
+  const failed = isError && variables === plan;
+
+  const save = useCallback(
+    (toSave: DegreePlan) => {
+      // Keep edits made while the save was in flight.
+      mutate(toSave, { onSuccess: (_, savedNow) => setDraft((d) => (d === savedNow ? null : d)) });
+    },
+    [mutate],
+  );
 
   useEffect(() => {
     if (saved) return;
@@ -20,10 +35,13 @@ export default function PlanProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('beforeunload', warn);
   }, [saved]);
 
-  function save() {
-    // Keep edits made while the save was in flight.
-    savePlan.mutate(plan, { onSuccess: (_, savedNow) => setDraft((d) => (d === savedNow ? null : d)) });
-  }
+  // One save at a time, so saves can't arrive out of order. A plan that failed to save
+  // waits for the next edit or "Try again" instead of retrying in a loop.
+  useEffect(() => {
+    if (saved || isPending || failed) return;
+    const timer = setTimeout(() => save(plan), autosaveDelay);
+    return () => clearTimeout(timer);
+  }, [plan, saved, isPending, failed, autosaveDelay, save]);
 
   return (
     <PlanContext.Provider
@@ -32,10 +50,10 @@ export default function PlanProvider({ children }: { children: ReactNode }) {
         saved,
         lastSaved,
         changePlan: setDraft,
-        save,
-        saving: savePlan.isPending,
+        retrySave: () => save(plan),
+        saving: isPending,
         // Only for the plan that failed to save, so any edit clears it.
-        saveError: savePlan.variables === plan ? (savePlan.error?.message ?? '') : '',
+        saveError: failed ? (error?.message ?? '') : '',
       }}
     >
       {children}

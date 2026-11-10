@@ -7,7 +7,7 @@ interface PlanState {
   saved: boolean;
   lastSaved: string | null;
   changePlan: (plan: DegreePlan) => void;
-  save: () => void;
+  retrySave: () => void;
   saving: boolean;
   saveError: string;
 }
