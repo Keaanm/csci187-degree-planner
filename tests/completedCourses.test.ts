@@ -1,7 +1,7 @@
 // Keaan Mirchandani
-// Tests completed courses: marking them, units, and requirement status.
+// Tests completed courses: marking them, units, requirement status, and requirement progress.
 import { describe, expect, it } from 'vitest';
-import { DegreePlan, UNITS_TO_GRADUATE } from '../src/DegreePlan';
+import { DegreePlan } from '../src/DegreePlan';
 import { DegreeRequirement } from '../src/DegreeRequirement';
 import { catalog } from './catalog';
 
@@ -47,11 +47,6 @@ describe('DegreePlan completed courses', () => {
     const plan = DegreePlan.empty(catalog).addCourse(0, 'CSCI 10').addCourse(0, 'MATH 11').markCompleted('CSCI 10');
     expect(plan.totalUnits()).toBe(9);
     expect(plan.completedUnits()).toBe(5);
-    expect(plan.remainingUnits()).toBe(UNITS_TO_GRADUATE - 5);
-  });
-
-  it('has all units remaining when nothing is completed', () => {
-    expect(DegreePlan.empty(catalog).remainingUnits()).toBe(UNITS_TO_GRADUATE);
   });
 
   it('counts only completed courses in completed requirement status', () => {
@@ -69,6 +64,61 @@ describe('DegreePlan completed courses', () => {
       .markCompleted('CSCI 10')
       .markCompleted('CSCI 60');
     expect(plan.completedRequirementStatus([intro])[0].satisfied).toBe(true);
+  });
+});
+
+describe('DegreePlan.requirementProgress', () => {
+  const stateOf = (plan: DegreePlan) => plan.requirementProgress([intro])[0];
+
+  it('is missing when the plan does not cover the requirement', () => {
+    const progress = stateOf(DegreePlan.empty(catalog).addCourse(0, 'CSCI 10').markCompleted('CSCI 10'));
+    expect(progress.state).toBe('missing');
+    expect(progress.missing).toEqual(['CSCI 60']);
+    expect(progress.stillNeeded).toBe(1);
+  });
+
+  it('is planned when the plan covers it but not every course is completed', () => {
+    const plan = DegreePlan.empty(catalog).addCourse(0, 'CSCI 10').addCourse(1, 'CSCI 60').markCompleted('CSCI 10');
+    expect(stateOf(plan).state).toBe('planned');
+  });
+
+  it('is completed when the completed courses meet it', () => {
+    const plan = DegreePlan.empty(catalog)
+      .addCourse(0, 'CSCI 10')
+      .addCourse(1, 'CSCI 60')
+      .markCompleted('CSCI 10')
+      .markCompleted('CSCI 60');
+    expect(stateOf(plan).state).toBe('completed');
+  });
+});
+
+describe('DegreePlan.requirementUnits', () => {
+  // CHEM 11 and PHYS 31 are 5 units, so either one meets the science requirement.
+  const science = new DegreeRequirement('Science', ['PHYS 31', 'CHEM 11'], 1);
+
+  it('needs the units of every listed course, or the fewest units for a choose-N requirement', () => {
+    // CSCI 60 is 5 units and CSCI 61 is 4.
+    const either = new DegreeRequirement('Either', ['CSCI 60', 'CSCI 61'], 1);
+    expect(DegreePlan.empty(catalog).requirementUnits([intro, either])).toEqual({
+      needed: 14,
+      completed: 0,
+      planned: 0,
+    });
+  });
+
+  it('splits the covered units into completed and planned', () => {
+    const plan = DegreePlan.empty(catalog).addCourse(0, 'CSCI 10').addCourse(1, 'CSCI 60').markCompleted('CSCI 10');
+    expect(plan.requirementUnits([intro])).toEqual({ needed: 10, completed: 5, planned: 5 });
+  });
+
+  it('counts only as many courses as a choose-N requirement needs', () => {
+    const plan = DegreePlan.empty(catalog).addCourse(0, 'CHEM 11').addCourse(1, 'PHYS 31').markCompleted('PHYS 31');
+    expect(plan.requirementUnits([science])).toEqual({ needed: 5, completed: 5, planned: 0 });
+  });
+
+  it('ignores courses that no requirement lists', () => {
+    const plan = DegreePlan.empty(catalog).addCourse(0, 'CSEN 10').markCompleted('CSEN 10');
+    expect(plan.requirementUnits([intro]).completed).toBe(0);
   });
 });
 

@@ -8,31 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import PlanProvider from '../src/components/PlanProvider';
 import SaveBar from '../src/components/SaveBar';
 import { usePlan } from '../src/PlanContext';
-import courseData from '../src/data/courses.json';
-import requirementData from '../src/data/requirements.json';
-
-interface SavedPlan {
-  lastSaved: string;
-  courses: { code: string; quarter: number; status: string }[];
-}
-
-// A fake backend. `saved` is the plan it starts with; `saveError` makes PUT fail.
-function fakeBackend({ saved, saveError }: { saved?: SavedPlan; saveError?: string } = {}) {
-  const puts: unknown[] = [];
-  const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
-  vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
-    if (url === '/api/courses') return json(200, courseData);
-    if (url === '/api/requirements') {
-      return json(200, requirementData.map((r, i) => ({ requirementId: i + 1, count: r.courses.length, ...r })));
-    }
-    if (init?.method === 'PUT') {
-      puts.push(JSON.parse(String(init.body)));
-      return saveError ? json(400, { error: saveError }) : json(200, { planId: 1, lastSaved: '2026-11-02T20:00:00.000Z' });
-    }
-    return saved ? json(200, { planId: 1, ...saved }) : json(404, { error: 'Plan not found' });
-  });
-  return puts;
-}
+import { fakeBackend } from './fakeBackend';
 
 // Stands in for the plan page: one button that edits the plan, and the plan's courses.
 function PlanEditor() {

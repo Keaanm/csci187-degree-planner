@@ -6,11 +6,9 @@ import LoadError from '@/components/LoadError';
 import Logo from '@/components/Logo';
 import NavItem from '@/components/NavItem';
 import PlanProvider from '@/components/PlanProvider';
-import SaveBar from '@/components/SaveBar';
 import CoursePage from '@/pages/CoursePage';
 import CoursesPage from '@/pages/CoursesPage';
 import PlanPage from '@/pages/PlanPage';
-import ProgressPage from '@/pages/ProgressPage';
 
 export default function App() {
   return (
@@ -27,17 +25,14 @@ export default function App() {
                         <Logo className="size-7" />
                         SCU Degree Planner
                       </Link>
-                      <NavItem to="/">Progress</NavItem>
-                      <NavItem to="/plan">4-Year Plan</NavItem>
+                      <NavItem to="/">My Plan</NavItem>
                       <NavItem to="/courses">Courses</NavItem>
                     </nav>
-                    <SaveBar />
                   </div>
                 </header>
                 <main className="mx-auto max-w-6xl px-4 py-6">
                   <Routes>
-                    <Route path="/" element={<ProgressPage />} />
-                    <Route path="/plan" element={<PlanPage />} />
+                    <Route path="/" element={<PlanPage />} />
                     <Route path="/courses" element={<CoursesPage />} />
                     <Route path="/courses/:code" element={<CoursePage />} />
                   </Routes>
