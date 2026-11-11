@@ -22,6 +22,24 @@ The user should be able to:
 3. Be warned when a course is placed before its prerequisites
 4. Save their 4-year plan so it is still there when they come back
 
-## Later (not in the MVP)
+## Final project requirements
 
-Selecting an emphasis and requirement data for the other CS emphases, the CS minor, the University Core, other majors, accounts (student and advisor), transfer credit, courses that count toward multiple requirements, the quarters a course is usually offered, professor ratings, all quarter schedule features (upcoming quarter search, time filters, conflict warnings, comparing schedules, backup classes, alternative courses), starting from the department's sample plan, a check for graduating by the expected quarter, replanning when a course becomes unavailable, study abroad paths, PDF export, and advisor features (sharing, viewing student plans, recommendations).
+The user should also be able to:
+
+### Accounts (built)
+1. Sign up with their email, a password and the quarter they started at SCU
+2. Log in and out, and see only their own plans
+
+### Planning
+1. Keep several named plans, and copy one to try a "what if" plan
+2. Choose their CS emphasis, and see the requirements for that emphasis and the University Core
+3. Have courses in quarters that have ended count as completed, after confirming which ones they passed
+4. Mark a course as failed and retake it in a later quarter
+5. Add University Core, elective, AP/transfer and study abroad units
+6. See when their plan finishes and when they have met every requirement
+7. See a course's chain of prerequisites as a graph
+8. Share a read-only link to a plan with their advisor
+
+## Later (not in the final project)
+
+The CS minor, other majors, advisor accounts, courses that count toward multiple requirements, the quarters a course is usually offered, professor ratings, all quarter schedule features (upcoming quarter search, time filters, conflict warnings, comparing schedules, backup classes, alternative courses), starting from the department's sample plan, replanning when a course becomes unavailable, planning which study abroad program to take, PDF export, and advisor features beyond a share link (an advisor's list of students, recommendations).

@@ -45,6 +45,8 @@ A student logs in with their email and password. Signing up or logging in sets a
 
 Emails are trimmed and lowercased, so `Ana@SCU.edu` and `ana@scu.edu` are the same account. Passwords are hashed with argon2id (libsodium) and never stored or returned.
 
+Sign-up, login and `PUT` need `Content-Type: application/json` (**400** otherwise). A form on another site can only send form or plain-text bodies, so this stops it from logging a visitor into someone else's account.
+
 ### `POST /api/signup`
 
 Creates an account and logs it in.
@@ -59,7 +61,7 @@ Response **201**, with the session cookie set:
 { "email": "ana@scu.edu", "startYear": 2025 }
 ```
 
-**400** if the email isn't valid, the password is shorter than 8 or longer than 256 characters, or `startYear` isn't an integer from 2000 to 2100. **409** if the email already has an account.
+**400** if the email isn't valid (one `@`, a domain with a dot, at most 254 bytes, no spaces or control characters), the password is shorter than 8 or longer than 256 bytes, or `startYear` isn't an integer from 2000 to 2100. **409** if the email already has an account.
 
 ### `POST /api/login`
 
@@ -67,7 +69,7 @@ Response **201**, with the session cookie set:
 { "email": "ana@scu.edu", "password": "correct horse" }
 ```
 
-Response **200**, with the session cookie set, and the same body as sign-up. **401** `"Wrong email or password"` for an unknown email or a wrong password (the same message for both, so the response doesn't show which emails have accounts).
+Response **200**, with the session cookie set, and the same body as sign-up. **401** `"Wrong email or password"` for an unknown email or a wrong password (the same message for both, so the response doesn't show which emails have accounts). **400** if the body has no string `email` or `password`. Logging in ends the session the browser already had, if any.
 
 ### `POST /api/logout`
 
@@ -122,6 +124,72 @@ Response: the plan id and the new last-saved time (ISO 8601).
 
 Return **400** if the body isn't in this shape. The frontend shows an error for any non-2xx response.
 
+## Next routes (agreed, not built yet)
+
+These are the routes for the rest of the final project, agreed before anyone builds them, so the backend and frontend can be built at the same time. Move each one into the sections above (and remove this note from it) in the pull request that builds it.
+
+Schema changes must keep existing students and plans: add columns with `ALTER TABLE ... ADD COLUMN`, or copy into a new table and rename it. Don't drop a table that holds student data (the drop for pre-account plans was only safe because no student could reach them). Every route here needs a login (**401** without one), and a plan id that isn't one of the logged-in student's plans is a **404**, so a student can't find out which plan ids exist.
+
+### Several plans (due Sun Nov 15)
+
+`GET /api/me/plans` lists the student's plans, oldest first:
+
+```json
+[{ "planId": 3, "name": "Main plan", "programId": 2, "lastSaved": "2026-11-12T18:00:00.000Z", "shared": false }]
+```
+
+`POST /api/me/plans` creates a plan. `copyFrom` is optional: the new plan starts with that plan's courses, for a "what if" plan.
+
+```json
+{ "name": "What if I study abroad", "programId": 2, "copyFrom": 3 }
+```
+
+Response **201** with the new plan in the same shape as the list. **400** for an empty name or one over 60 characters, or a `programId` that isn't an emphasis.
+
+`PATCH /api/me/plans/:planId` renames a plan or changes its emphasis. Body: `{ "name": "...", "programId": 2 }`, either field optional. Response **200** with the plan.
+
+`DELETE /api/me/plans/:planId` deletes a plan and its courses. Response **204**. **400** `"You need at least one plan"` for the student's only plan. The frontend asks before deleting.
+
+`GET` and `PUT /api/me/plans/:planId` load and save one plan, with the same bodies as `GET` and `PUT /api/me/plan`. Once the frontend uses these, `/api/me/plan` is removed. Sign-up creates the first plan, called "Main plan", with no emphasis chosen (`programId: null`). Students who signed up before this (and may have no plan yet) get a "Main plan" when the server starts, so every student always has at least one.
+
+### Emphases and the University Core (due Sun Nov 15)
+
+`GET /api/programs` lists every program. `kind` is `"major"`, `"emphasis"` or `"core"`. A plan's requirements are the major's, its emphasis's, and the Core's.
+
+```json
+[
+  { "programId": 1, "name": "Computer Science (B.S.)", "kind": "major" },
+  { "programId": 2, "name": "Software", "kind": "emphasis" },
+  { "programId": 9, "name": "University Core", "kind": "core" }
+]
+```
+
+`GET /api/requirements` adds `programId` to each requirement, and `units` for requirements measured in units instead of courses (like the Core), which is otherwise `null`.
+
+### Finished quarters and retakes (due Thu Nov 19)
+
+`GET /api/me` adds `confirmedThrough`: the last quarter (0 to 11) whose results the student has confirmed, or `null`.
+
+`PATCH /api/me` with `{ "confirmedThrough": 2, "planId": 3 }` records that the student confirmed every quarter up to and including that one, using plan 3's courses and passed/failed results. The past is the same in every plan, so the server copies those quarters (courses and results) into the student's other plans. **400** for a quarter that hasn't ended yet. A quarter ends on Dec 15 (Fall), Mar 25 (Winter) or Jun 15 (Spring) of its school year, using the server's date.
+
+A plan course's `status` can also be `"failed"` (didn't pass or withdrew). A failed course doesn't count toward anything, and the same course can then be planned again in a later quarter, so a course can be in a plan more than once if every earlier attempt is failed. This replaces today's 400 for "a course listed twice": `PUT` still rejects a course listed twice unless every earlier attempt is `"failed"`. `plan_course` needs a new key (`plan_id, course_id, quarter`) and the new status, so it's rebuilt with a copy, keeping every saved row.
+
+### Other credit (due Sun Nov 22)
+
+`GET /api/me/plans/:planId` adds `credits`, and `PUT` accepts it: units that aren't courses in our catalog. A `PUT` with `credits` replaces them all; a `PUT` without `credits` leaves them as they are.
+
+```json
+{ "credits": [{ "kind": "ap", "description": "AP Calculus BC", "units": 8, "requirementId": null }] }
+```
+
+`kind` is `"core"`, `"elective"`, `"ap"`, `"transfer"` or `"abroad"`. `requirementId` is the requirement it counts toward, or `null`. **400** for units that aren't 1 to 60.
+
+### Share link (due Sun Nov 22)
+
+`POST /api/me/plans/:planId/share` turns on a read-only link and returns `{ "shareToken": "<64 hex characters>" }`. Calling it again returns the same token. `DELETE` on the same route turns the link off (**204**), and the old link stops working.
+
+`GET /api/shared/:shareToken` needs no login and returns the plan: its `courses`, `credits`, `lastSaved`, `name`, `programId` (so the right emphasis's requirements show), and the owner's `startYear`, but not their email or the plan id. **404** for a token that doesn't exist or was turned off.
+
 ## Tables (from the ER diagram)
 
 ```sql
@@ -139,7 +207,7 @@ Differences from the ER diagram, in `server/src/Database.cpp`:
 
 - `position` keeps the order of courses within a requirement and within a plan's quarter.
 - Requirement ids are the requirement's position in `requirements.json`, starting at 1.
-- `expires_at` on `session` is Unix time in seconds. Expired sessions are deleted the next time anyone logs in.
+- `expires_at` on `session` is Unix time in seconds. Expired sessions are deleted the next time anyone logs in or signs up.
 - A student can own several plans in the ER diagram, but the API only uses each student's first plan for now.
 - Plans saved before accounts existed had no owner, so the server drops them the first time it starts with the new tables.
 - `PUT` also returns **400** for a course that isn't offered, a course listed twice, or a quarter over 18 units.

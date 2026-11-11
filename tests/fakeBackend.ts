@@ -9,30 +9,76 @@ export interface SavedPlan {
   courses: { code: string; quarter: number; status: string }[];
 }
 
+// The one account that exists, and its password.
+export const ACCOUNT = { email: 'ana@scu.edu', startYear: 2025 };
+export const PASSWORD = 'correct horse';
+
 // A fake backend. `saved` is the plan it starts with, `saveError` makes PUT fail, and
-// `saveDelayMs` makes each PUT take that long. `puts` records each PUT body, and
-// `puts.mostAtOnce` the most PUTs that were in flight at the same time.
-export function fakeBackend({ saved, saveError, saveDelayMs = 0 }: {
+// `saveDelayMs` makes each PUT take that long. It starts logged in as ACCOUNT unless
+// `loggedIn` is false.
+//
+// `saved` belongs to ACCOUNT; any other student starts with no saved plan.
+//
+// It returns the PUT bodies, with extras: `mostAtOnce` is the most PUTs in flight at the
+// same time, `posts` records each POST as { url, body }, and `endSession()` ends the
+// session on the server, as if it expired. Setting `meStillLoggedIn` makes /api/me keep
+// answering as ACCOUNT after that, as when a session ends between two requests.
+export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true }: {
   saved?: SavedPlan;
   saveError?: string;
   saveDelayMs?: number;
+  loggedIn?: boolean;
 } = {}) {
-  const puts: unknown[] & { mostAtOnce: number } = Object.assign([], { mostAtOnce: 0 });
+  let me: typeof ACCOUNT | null = loggedIn ? ACCOUNT : null;
   let inFlight = 0;
+  const puts = Object.assign([] as unknown[], {
+    mostAtOnce: 0,
+    posts: [] as { url: string; body: unknown }[],
+    endSession: () => {
+      me = null;
+    },
+    meStillLoggedIn: false,
+  });
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
+  const loggedOut = () => json(401, { error: 'You need to log in' });
+
   vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    if (init?.method === 'POST') puts.posts.push({ url, body });
+
     if (url === '/api/courses') return json(200, courseData);
     if (url === '/api/requirements') {
       return json(200, requirementData.map((r, i) => ({ requirementId: i + 1, count: r.courses.length, ...r })));
     }
+    if (url === '/api/me') {
+      if (puts.meStillLoggedIn) return json(200, ACCOUNT);
+      return me ? json(200, me) : loggedOut();
+    }
+    if (url === '/api/login') {
+      if (body.email !== ACCOUNT.email || body.password !== PASSWORD) return json(401, { error: 'Wrong email or password' });
+      me = ACCOUNT;
+      return json(200, me);
+    }
+    if (url === '/api/signup') {
+      if (body.email === ACCOUNT.email) return json(409, { error: 'An account with that email already exists' });
+      if (body.password.length < 8) return json(400, { error: 'Password must be at least 8 characters' });
+      me = { email: body.email, startYear: body.startYear };
+      return json(201, me);
+    }
+    if (url === '/api/logout') {
+      me = null;
+      return new Response(null, { status: 204 });
+    }
+    if (url !== '/api/me/plan') return json(404, { error: 'Not found' });
+    if (!me) return loggedOut();
     if (init?.method === 'PUT') {
-      puts.push(JSON.parse(String(init.body)));
+      puts.push(body);
       puts.mostAtOnce = Math.max(puts.mostAtOnce, ++inFlight);
       await new Promise((resolve) => setTimeout(resolve, saveDelayMs));
       inFlight--;
       return saveError ? json(400, { error: saveError }) : json(200, { planId: 1, lastSaved: '2026-11-02T20:00:00.000Z' });
     }
-    return saved ? json(200, { planId: 1, ...saved }) : json(404, { error: 'Plan not found' });
+    return saved && me.email === ACCOUNT.email ? json(200, { planId: 1, ...saved }) : json(404, { error: 'Plan not found' });
   });
   return puts;
 }

@@ -3,10 +3,30 @@ import { DegreePlan } from './DegreePlan';
 import type { PlanCourse } from './DegreePlan';
 import { DegreeRequirement } from './DegreeRequirement';
 
-// Routes and JSON shapes are in API.md. There are no accounts, so there's only plan 1.
-export const PLAN_ID = 1;
+// Routes and JSON shapes are in API.md. The session cookie is sent automatically, so the
+// plan routes always mean the logged-in student's plan.
 
 type Fetch = typeof fetch;
+
+// An error response, with its status so callers can tell a 401 (logged out) apart.
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export interface Student {
+  email: string;
+  startYear: number;
+}
+
+export interface SignUp {
+  email: string;
+  password: string;
+  startYear: number;
+}
 
 interface CourseJson {
   code: string;
@@ -44,22 +64,38 @@ export async function fetchRequirements(fetchFn: Fetch = fetch): Promise<DegreeR
   return requirements.map((r) => new DegreeRequirement(r.description, r.courses, r.count));
 }
 
-// 404 means the plan was never saved.
+// The logged-in student, or null when nobody is logged in.
+export async function fetchMe(fetchFn: Fetch = fetch): Promise<Student | null> {
+  const response = await fetchFn('/api/me');
+  if (response.status === 401) return null;
+  return readJson<Student>(response);
+}
+
+export async function signUp(details: SignUp, fetchFn: Fetch = fetch): Promise<Student> {
+  return readJson<Student>(await postJson(fetchFn, '/api/signup', details));
+}
+
+export async function logIn(email: string, password: string, fetchFn: Fetch = fetch): Promise<Student> {
+  return readJson<Student>(await postJson(fetchFn, '/api/login', { email, password }));
+}
+
+export async function logOut(fetchFn: Fetch = fetch): Promise<void> {
+  const response = await fetchFn('/api/logout', { method: 'POST' });
+  if (!response.ok) await readJson(response);
+}
+
+// The logged-in student's plan. 404 means they have never saved one.
 // `offered` is the course list from fetchCourses.
-export async function fetchPlan(
-  offered: readonly Course[],
-  planId: number = PLAN_ID,
-  fetchFn: Fetch = fetch,
-): Promise<LoadedPlan> {
-  const response = await fetchFn(`/api/plans/${planId}`);
+export async function fetchPlan(offered: readonly Course[], fetchFn: Fetch = fetch): Promise<LoadedPlan> {
+  const response = await fetchFn('/api/me/plan');
   if (response.status === 404) return { plan: DegreePlan.empty(offered), lastSaved: null };
   const saved = await readJson<PlanJson>(response);
   return { plan: DegreePlan.fromRows(saved.courses, offered), lastSaved: saved.lastSaved };
 }
 
-// Replaces everything saved for the plan.
-export async function savePlan(plan: DegreePlan, planId: number = PLAN_ID, fetchFn: Fetch = fetch): Promise<string> {
-  const response = await fetchFn(`/api/plans/${planId}`, {
+// Replaces everything saved in the logged-in student's plan.
+export async function savePlan(plan: DegreePlan, fetchFn: Fetch = fetch): Promise<string> {
+  const response = await fetchFn('/api/me/plan', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ courses: plan.toRows() }),
@@ -72,9 +108,17 @@ async function getJson<T>(fetchFn: Fetch, url: string): Promise<T> {
   return readJson<T>(await fetchFn(url));
 }
 
+function postJson(fetchFn: Fetch, url: string, body: unknown): Promise<Response> {
+  return fetchFn(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    throw new Error((await errorMessage(response)) ?? fallbackMessage(response.status));
+    throw new ApiError((await errorMessage(response)) ?? fallbackMessage(response.status), response.status);
   }
   return (await response.json()) as T;
 }
