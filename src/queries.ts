@@ -5,6 +5,7 @@ import {
   QueryClient,
   queryOptions,
   useMutation,
+  useQuery,
   useQueryClient,
   useSuspenseQuery,
 } from '@tanstack/react-query';
@@ -16,6 +17,10 @@ import type { DegreePlan } from './DegreePlan';
 // Loading and errors are handled by <Suspense> and <ErrorBoundary> in App.
 
 const meKey = ['me'];
+// Why the last session ended: the student logged out, or it expired (a 401). Only the
+// login page reads it, to explain why the student is there.
+const sessionEndKey = ['sessionEnd'];
+export type SessionEnd = 'loggedOut' | 'expired' | null;
 const coursesQuery = queryOptions({ queryKey: ['courses'], queryFn: () => fetchCourses() });
 const requirementsQuery = queryOptions({ queryKey: ['requirements'], queryFn: () => fetchRequirements() });
 // Keyed by student, so logging in as someone else never shows the last student's plan.
@@ -40,10 +45,12 @@ function isLoggedOut(error: unknown) {
 }
 
 function endSessionIf401(client: QueryClient, error: unknown) {
-  if (isLoggedOut(error)) endSession(client);
+  // Only a session that was open can expire; a 401 from logging in is a wrong password.
+  if (isLoggedOut(error) && client.getQueryData(meKey)) endSession(client, 'expired');
 }
 
-function endSession(client: QueryClient) {
+function endSession(client: QueryClient, reason: SessionEnd) {
+  client.setQueryData<SessionEnd>(sessionEndKey, reason);
   client.setQueryData<Student | null>(meKey, null);
   client.removeQueries({ queryKey: ['plan'] });
 }
@@ -53,10 +60,15 @@ export function useMe() {
   return useSuspenseQuery({ queryKey: meKey, queryFn: () => fetchMe() }).data;
 }
 
+export function useSessionEnd(): SessionEnd {
+  return useQuery({ queryKey: sessionEndKey, queryFn: () => null, initialData: null, staleTime: Infinity }).data;
+}
+
 function useStartSession() {
   const queryClient = useQueryClient();
   return (student: Student) => {
     queryClient.removeQueries({ queryKey: ['plan'] });
+    queryClient.setQueryData<SessionEnd>(sessionEndKey, null);
     queryClient.setQueryData<Student | null>(meKey, student);
   };
 }
@@ -78,7 +90,7 @@ export function useLogOut() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => logOut(),
-    onSuccess: () => endSession(queryClient),
+    onSuccess: () => endSession(queryClient, 'loggedOut'),
   });
 }
 

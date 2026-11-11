@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -12,15 +12,24 @@ import { usePlan } from '@/PlanContext';
 import type { Student } from '@/api';
 import { useLogOut } from '@/queries';
 
-// The logged-in email and a Log out button. Logging out with unsaved changes asks first,
-// because they would be lost.
+// The logged-in email and a Log out button. With unsaved changes, logging out asks first:
+// it logs out by itself as soon as the changes save, or right away if the student chooses
+// to lose them.
 export default function AccountMenu({ student }: { student: Student }) {
-  const { saved } = usePlan();
+  const { saved, saveError } = usePlan();
   const logOut = useLogOut();
   const [confirming, setConfirming] = useState(false);
+  const { mutate: logOutNow } = logOut;
+
+  useEffect(() => {
+    if (confirming && saved) {
+      setConfirming(false);
+      logOutNow();
+    }
+  }, [confirming, saved, logOutNow]);
 
   return (
-    <div className="flex items-center gap-3 text-sm">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
       <span className="max-w-48 truncate text-muted-foreground" title={student.email}>
         {student.email}
       </span>
@@ -33,15 +42,19 @@ export default function AccountMenu({ student }: { student: Student }) {
         Log out
       </Button>
       {logOut.isError && (
-        <span className="text-destructive" role="alert">
+        <span className="basis-full text-destructive" role="alert">
           Couldn't log out: {logOut.error.message}
         </span>
       )}
       <Dialog open={confirming} onOpenChange={setConfirming}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Log out without saving?</DialogTitle>
-            <DialogDescription>Your latest changes haven't saved yet. If you log out now, they'll be lost.</DialogDescription>
+            <DialogTitle>{saveError ? 'Log out without saving?' : 'Your changes are still saving'}</DialogTitle>
+            <DialogDescription>
+              {saveError
+                ? "Your latest changes couldn't be saved. If you log out now, they'll be lost."
+                : "You'll be logged out as soon as they're saved. If you log out now, they'll be lost."}
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirming(false)}>
@@ -54,7 +67,7 @@ export default function AccountMenu({ student }: { student: Student }) {
                 logOut.mutate();
               }}
             >
-              Log out anyway
+              Log out now
             </Button>
           </DialogFooter>
         </DialogContent>

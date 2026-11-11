@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import AuthCard from '@/components/AuthCard';
 import Field from '@/components/Field';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,8 @@ export default function SignUpPage() {
   const [startYear, setStartYear] = useState('');
   const [missingYear, setMissingYear] = useState(false);
   const signUp = useSignUp();
+  const { state } = useLocation();
+  const yearMissing = missingYear && !startYear;
 
   const submit = () => {
     if (!startYear) return setMissingYear(true);
@@ -30,12 +32,12 @@ export default function SignUpPage() {
       description="Your plan is saved to your account, so it's there whenever you log in."
       submitLabel="Create account"
       pending={signUp.isPending}
-      error={missingYear && !startYear ? 'Choose the quarter you started at SCU' : (signUp.error?.message ?? '')}
+      error={yearMissing ? 'Choose the quarter you started at SCU' : (signUp.error?.message ?? '')}
       onSubmit={submit}
       footer={
         <span>
           Already have an account?{' '}
-          <Link to="/login" className="font-medium text-foreground underline underline-offset-4">
+          <Link to="/login" state={state} className="font-medium text-foreground underline underline-offset-4">
             Log in
           </Link>
         </span>
@@ -56,6 +58,7 @@ export default function SignUpPage() {
         <select
           className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm dark:bg-input/30"
           value={startYear}
+          aria-invalid={yearMissing || undefined}
           onChange={(e) => setStartYear(e.target.value)}
         >
           <option value="" disabled>

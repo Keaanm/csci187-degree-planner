@@ -17,9 +17,12 @@ export const PASSWORD = 'correct horse';
 // `saveDelayMs` makes each PUT take that long. It starts logged in as ACCOUNT unless
 // `loggedIn` is false.
 //
+// `saved` belongs to ACCOUNT; any other student starts with no saved plan.
+//
 // It returns the PUT bodies, with extras: `mostAtOnce` is the most PUTs in flight at the
 // same time, `posts` records each POST as { url, body }, and `endSession()` ends the
-// session on the server, as if it expired.
+// session on the server, as if it expired. Setting `meStillLoggedIn` makes /api/me keep
+// answering as ACCOUNT after that, as when a session ends between two requests.
 export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true }: {
   saved?: SavedPlan;
   saveError?: string;
@@ -34,6 +37,7 @@ export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true
     endSession: () => {
       me = null;
     },
+    meStillLoggedIn: false,
   });
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
   const loggedOut = () => json(401, { error: 'You need to log in' });
@@ -46,7 +50,10 @@ export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true
     if (url === '/api/requirements') {
       return json(200, requirementData.map((r, i) => ({ requirementId: i + 1, count: r.courses.length, ...r })));
     }
-    if (url === '/api/me') return me ? json(200, me) : loggedOut();
+    if (url === '/api/me') {
+      if (puts.meStillLoggedIn) return json(200, ACCOUNT);
+      return me ? json(200, me) : loggedOut();
+    }
     if (url === '/api/login') {
       if (body.email !== ACCOUNT.email || body.password !== PASSWORD) return json(401, { error: 'Wrong email or password' });
       me = ACCOUNT;
@@ -71,7 +78,7 @@ export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true
       inFlight--;
       return saveError ? json(400, { error: saveError }) : json(200, { planId: 1, lastSaved: '2026-11-02T20:00:00.000Z' });
     }
-    return saved ? json(200, { planId: 1, ...saved }) : json(404, { error: 'Plan not found' });
+    return saved && me.email === ACCOUNT.email ? json(200, { planId: 1, ...saved }) : json(404, { error: 'Plan not found' });
   });
   return puts;
 }

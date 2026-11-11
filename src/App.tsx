@@ -14,7 +14,7 @@ import CoursesPage from '@/pages/CoursesPage';
 import LogInPage from '@/pages/LogInPage';
 import PlanPage from '@/pages/PlanPage';
 import SignUpPage from '@/pages/SignUpPage';
-import { useMe } from '@/queries';
+import { useMe, useSessionEnd } from '@/queries';
 
 export default function App() {
   return (
@@ -43,13 +43,17 @@ function Loading({ children }: { children: ReactNode }) {
 // or a 401 from any route), the planner unmounts and the student lands on the login page.
 function AuthGate() {
   const student = useMe();
+  const sessionEnd = useSessionEnd();
   const location = useLocation();
   if (!student) {
+    // Remember the page to come back to, except after logging out on purpose: the next
+    // person to log in shouldn't land on the last student's page.
+    const from = sessionEnd === 'loggedOut' ? undefined : { from: location.pathname + location.search };
     return (
       <Routes>
         <Route path="/login" element={<LogInPage />} />
         <Route path="/signup" element={<SignUpPage />} />
-        <Route path="*" element={<Navigate to="/login" replace state={{ from: location.pathname + location.search }} />} />
+        <Route path="*" element={<Navigate to="/login" replace state={from} />} />
       </Routes>
     );
   }
@@ -82,7 +86,7 @@ function Planner({ student }: { student: Student }) {
             <Route path="/courses" element={<CoursesPage />} />
             <Route path="/courses/:code" element={<CoursePage />} />
             <Route path="/login" element={<Navigate to={from} replace />} />
-            <Route path="/signup" element={<Navigate to="/" replace />} />
+            <Route path="/signup" element={<Navigate to={from} replace />} />
           </Routes>
         </main>
       </PlanProvider>
