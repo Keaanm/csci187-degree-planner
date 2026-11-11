@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 
+#include "Auth.h"
 #include "Database.h"
 #include "Routes.h"
 
@@ -32,6 +33,7 @@ int main(int argc, char** argv) {
   }
 
   try {
+    auth::init();
     Database db(dbPath);
     db.seed(dataDir);
 
