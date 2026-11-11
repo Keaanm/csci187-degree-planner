@@ -122,6 +122,70 @@ Response: the plan id and the new last-saved time (ISO 8601).
 
 Return **400** if the body isn't in this shape. The frontend shows an error for any non-2xx response.
 
+## Next routes (agreed, not built yet)
+
+These are the routes for the rest of the final project, agreed before anyone builds them, so the backend and frontend can be built at the same time. Move each one into the sections above (and remove this note from it) in the pull request that builds it. Every route here needs a login (**401** without one), and a plan id that isn't one of the logged-in student's plans is a **404**, so a student can't find out which plan ids exist.
+
+### Several plans (due Sun Nov 15)
+
+`GET /api/me/plans` lists the student's plans, oldest first:
+
+```json
+[{ "planId": 3, "name": "Main plan", "programId": 2, "lastSaved": "2026-11-12T18:00:00.000Z", "shared": false }]
+```
+
+`POST /api/me/plans` creates a plan. `copyFrom` is optional: the new plan starts with that plan's courses, for a "what if" plan.
+
+```json
+{ "name": "What if I study abroad", "programId": 2, "copyFrom": 3 }
+```
+
+Response **201** with the new plan in the same shape as the list. **400** for an empty name or one over 60 characters, or a `programId` that isn't an emphasis.
+
+`PATCH /api/me/plans/:planId` renames a plan or changes its emphasis. Body: `{ "name": "...", "programId": 2 }`, either field optional. Response **200** with the plan.
+
+`DELETE /api/me/plans/:planId` deletes a plan and its courses. Response **204**. **400** `"You need at least one plan"` for the student's only plan. The frontend asks before deleting.
+
+`GET` and `PUT /api/me/plans/:planId` load and save one plan, with the same bodies as `GET` and `PUT /api/me/plan`. Once the frontend uses these, `/api/me/plan` is removed. Sign-up creates the first plan, called "Main plan", with no emphasis chosen (`programId: null`).
+
+### Emphases and the University Core (due Sun Nov 15)
+
+`GET /api/programs` lists every program. `kind` is `"major"`, `"emphasis"` or `"core"`. A plan's requirements are the major's, its emphasis's, and the Core's.
+
+```json
+[
+  { "programId": 1, "name": "Computer Science (B.S.)", "kind": "major" },
+  { "programId": 2, "name": "Software", "kind": "emphasis" },
+  { "programId": 9, "name": "University Core", "kind": "core" }
+]
+```
+
+`GET /api/requirements` adds `programId` to each requirement, and `units` for requirements measured in units instead of courses (like the Core), which is otherwise `null`.
+
+### Finished quarters and retakes (due Thu Nov 19)
+
+`GET /api/me` adds `confirmedThrough`: the last quarter (0 to 11) whose results the student has confirmed, or `null`.
+
+`PATCH /api/me` with `{ "confirmedThrough": 2 }` records that the student confirmed every quarter up to and including that one. **400** for a quarter that hasn't ended yet. A quarter ends on Dec 15 (Fall), Mar 25 (Winter) or Jun 15 (Spring) of its school year, using the server's date.
+
+A plan course's `status` can also be `"failed"` (didn't pass or withdrew). A failed course doesn't count toward anything, and the same course can then be planned again in a later quarter, so a course can be in a plan more than once if every earlier attempt is failed.
+
+### Other credit (due Sun Nov 22)
+
+`GET /api/me/plans/:planId` adds `credits`, and `PUT` accepts it: units that aren't courses in our catalog.
+
+```json
+{ "credits": [{ "kind": "ap", "description": "AP Calculus BC", "units": 8, "requirementId": null }] }
+```
+
+`kind` is `"core"`, `"elective"`, `"ap"`, `"transfer"` or `"abroad"`. `requirementId` is the requirement it counts toward, or `null`. **400** for units that aren't 1 to 60.
+
+### Share link (due Sun Nov 22)
+
+`POST /api/me/plans/:planId/share` turns on a read-only link and returns `{ "shareToken": "<64 hex characters>" }`. Calling it again returns the same token. `DELETE` on the same route turns the link off (**204**), and the old link stops working.
+
+`GET /api/shared/:shareToken` needs no login and returns the plan (same body as `GET /api/me/plans/:planId`, plus `"name"` and the owner's `"startYear"`, but not their email). **404** for a token that doesn't exist or was turned off.
+
 ## Tables (from the ER diagram)
 
 ```sql

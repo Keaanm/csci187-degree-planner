@@ -21,7 +21,7 @@ Plan your 4-year schedule and track your progress toward the SCU Computer Scienc
    npm run dev
    ```
 
-4. Open http://localhost:5173.
+4. Open http://localhost:5173 and create an account. Each account has its own plan.
 
 The first run takes about a minute while CMake downloads and builds the C++ dependencies. If the page says "Couldn't load data from the server", wait for the API to start, then click **Try again**.
 
@@ -47,7 +47,7 @@ The first run takes about a minute while CMake downloads and builds the C++ depe
 | `npm run build` | Type-check and build for production |
 | `npm run lint` | Lint with oxlint |
 
-To start over with an empty plan, stop the server and delete `server/degree_planner.db`.
+To start over with no accounts or plans, stop the server and delete `server/degree_planner.db`.
 
 ### Windows
 
@@ -57,10 +57,10 @@ To start over with an empty plan, stop the server and delete `server/degree_plan
 2. Start the API: `server\build\Release\degree_planner_server.exe --db server\degree_planner.db` (or `server\build\Debug\...`).
 3. In a second terminal, run `npm run dev:web`.
 
-## What the MVP covers
+## What the app covers so far
 
 - The B.S. in Computer Science with the Software emphasis. Our team preloads the courses and requirements.
-- No accounts. The C++ backend saves one plan per server in SQLite, so run the app on your own machine to get your own plan. If two people share a server, the last save wins.
+- Student accounts. A student signs up with their email, a password and the fall they started at SCU, and their plan is saved to their account in the backend's SQLite database.
 
 The user requirements are in [REQUIREMENTS.md](REQUIREMENTS.md). The functional specifications are in [SPECIFICATIONS.md](SPECIFICATIONS.md). The API routes are in [API.md](API.md).
 
