@@ -30,7 +30,8 @@ class Statement {
     return *this;
   }
   Statement& bind(int i, const std::string& value) {
-    sqlite3_bind_text(stmt_, i, value.c_str(), -1, SQLITE_TRANSIENT);
+    // Pass the length, so a string with a NUL byte isn't cut short.
+    sqlite3_bind_text(stmt_, i, value.c_str(), static_cast<int>(value.size()), SQLITE_TRANSIENT);
     return *this;
   }
 

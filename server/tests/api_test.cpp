@@ -1,9 +1,11 @@
 // Darren Hu
 // Starts the server on a free port with an in-memory database and calls every route in API.md.
 #include <filesystem>
-#include <memory>
 #include <iostream>
+#include <memory>
 #include <thread>
+
+#include <sqlite3.h>
 
 #include "Auth.h"
 #include "Database.h"
@@ -135,6 +137,13 @@ int main() {
         R"({"email": "noyear@example.com", "password": "correct horse"})",
         R"({"email": "textyear@example.com", "password": "correct horse", "startYear": "2025"})",
         R"({"email": "oldyear@example.com", "password": "correct horse", "startYear": 1999})",
+        R"({"email": "a@.", "password": "correct horse", "startYear": 2025})",
+        R"({"email": "a@b.c;x", "password": "correct horse", "startYear": 2025})",
+        R"({"email": "a,b@c.d", "password": "correct horse", "startYear": 2025})",
+        R"({"email": "a@@b.cd", "password": "correct horse", "startYear": 2025})",
+        R"({"email": "a@b..cd", "password": "correct horse", "startYear": 2025})",
+        R"({"email": "a@b.cd.", "password": "correct horse", "startYear": 2025})",
+        R"({"email": "nul@example.com\u0000", "password": "correct horse", "startYear": 2025})",
     };
     for (const char* bad_body : bad) {
       auto res = client.Post("/api/signup", bad_body, "application/json");
@@ -142,6 +151,28 @@ int main() {
       CHECK(status(res) == 400);
     }
     CHECK(!db.findStudentByEmail("short@example.com"));
+
+    // Too long: an email over 254 characters, or a password over 256.
+    std::string longEmail = std::string(250, 'a') + "@b.cd";
+    CHECK(status(post(client, "/api/signup", {{"email", longEmail}, {"password", "correct horse"}, {"startYear", 2025}})) == 400);
+    CHECK(status(post(client, "/api/signup",
+                      {{"email", "longpw@example.com"}, {"password", std::string(257, 'x')}, {"startYear", 2025}})) == 400);
+    CHECK(!db.findStudentByEmail("longpw@example.com"));
+  }
+
+  // Login and sign-up only accept JSON, so a form on another site can't log a visitor in.
+  {
+    auto signup = client.Post("/api/signup", R"({"email": "form@example.com", "password": "correct horse", "startYear": 2025})",
+                              "text/plain");
+    CHECK(status(signup) == 400);
+    CHECK(body(signup)["error"] == "Content-Type must be application/json");
+    CHECK(!db.findStudentByEmail("form@example.com"));
+
+    auto login = client.Post("/api/login", "email=ana%40scu.edu&password=correct+horse", "application/x-www-form-urlencoded");
+    CHECK(status(login) == 400);
+    CHECK(login && login->get_header_value("Set-Cookie").empty());
+    auto plainLogin = client.Post("/api/login", R"({"email": "ana@scu.edu", "password": "correct horse"})", "text/plain");
+    CHECK(status(plainLogin) == 400);
   }
 
   // Login: right password works, a wrong password or unknown email is a 401 with the same message.
@@ -164,6 +195,18 @@ int main() {
     CHECK(body(unknown)["error"] == "Wrong email or password");
 
     CHECK(status(client.Post("/api/login", "{}", "application/json")) == 400);
+
+    // A password over 256 characters is just a wrong password.
+    CHECK(status(post(client, "/api/login", {{"email", "ana@scu.edu"}, {"password", std::string(300, 'x')}})) == 401);
+
+    // Logging in again from the same browser ends the session it had before.
+    auto first = post(client, "/api/login", {{"email", "ana@scu.edu"}, {"password", "correct horse"}});
+    std::string firstCookie = sessionCookie(first);
+    auto again = client.Post("/api/login", {{"Cookie", firstCookie}},
+                             R"({"email": "ana@scu.edu", "password": "correct horse"})", "application/json");
+    CHECK(status(again) == 200);
+    CHECK(status(client.Get("/api/me", {{"Cookie", firstCookie}})) == 401);
+    CHECK(status(client.Get("/api/me", {{"Cookie", sessionCookie(again)}})) == 200);
   }
 
   // Without a valid session, /api/me and the plan routes are 401s.
@@ -273,6 +316,8 @@ int main() {
       if (status(res) != 400) std::cerr << "Expected 400 for: " << bad_body << "\n";
       CHECK(status(res) == 400);
     }
+    // A valid body that isn't sent as JSON.
+    CHECK(status(alice->Put("/api/me/plan", R"({"courses": []})", "text/plain")) == 400);
     json plan = body(alice->Get("/api/me/plan"));
     CHECK(plan["courses"].size() == 1);
   }
@@ -357,6 +402,32 @@ int main() {
       {"code": "CSCI 10", "quarter": 0, "status": "completed"},
       {"code": "CSCI 60", "quarter": 1, "status": "planned"}
     ])"));
+    std::filesystem::remove(path);
+  }
+
+  // A database from before accounts: its plans have no owner, so they're dropped and
+  // degree_plan is recreated with student_id. Everything else still works.
+  {
+    auto path = std::filesystem::temp_directory_path() / "degree_planner_old_schema_test.db";
+    std::filesystem::remove(path);
+    sqlite3* old = nullptr;
+    sqlite3_open(path.string().c_str(), &old);
+    sqlite3_exec(old, R"sql(
+      CREATE TABLE degree_plan (plan_id INTEGER PRIMARY KEY, last_saved TEXT NOT NULL);
+      CREATE TABLE plan_course (plan_id INTEGER, course_id INTEGER, quarter INTEGER, status TEXT, position INTEGER);
+      INSERT INTO degree_plan VALUES (1, '2026-10-01T00:00:00.000Z');
+      INSERT INTO plan_course VALUES (1, 1, 0, 'planned', 0);
+    )sql", nullptr, nullptr, nullptr);
+    sqlite3_close(old);
+    {
+      Database migrated(path.string());
+      migrated.seed(DEFAULT_DATA_DIR);
+      int studentId = migrated.createStudent("dana@scu.edu", auth::hashPassword("correct horse"), 2025);
+      CHECK(!migrated.plan(studentId));  // the ownerless plan 1 isn't anyone's
+      migrated.savePlan(studentId, {{"CSCI 10", 0, "planned"}});
+      auto plan = migrated.plan(studentId);
+      CHECK(plan && (*plan)["courses"].size() == 1);
+    }
     std::filesystem::remove(path);
   }
 

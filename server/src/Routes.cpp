@@ -83,8 +83,34 @@ std::string normalizeEmail(std::string email) {
   return email;
 }
 
-json parseObject(const std::string& body) {
-  json parsed = json::parse(body, nullptr, false);
+// Login and sign-up only accept JSON. A form on another site can POST text/plain or
+// form-encoded bodies without CORS, which would let it log a visitor into the attacker's
+// account; it can't send application/json without the browser asking this server first.
+void requireJson(const httplib::Request& req) {
+  if (req.get_header_value("Content-Type").rfind("application/json", 0) != 0) {
+    throw BadRequest("Content-Type must be application/json");
+  }
+}
+
+// One "@", something before it, and a domain with a dot that isn't at either end or doubled.
+// No spaces, control characters, or characters that are only legal in quoted emails.
+bool isValidEmail(const std::string& email) {
+  static const std::string kNotAllowed = "\",;:<>()[]\\";
+  if (email.size() > 254) return false;
+  for (unsigned char c : email) {
+    if (c <= ' ' || c == 0x7f || kNotAllowed.find(static_cast<char>(c)) != std::string::npos) return false;
+  }
+  size_t at = email.find('@');
+  if (at == std::string::npos || at == 0 || email.find('@', at + 1) != std::string::npos) return false;
+  std::string domain = email.substr(at + 1);
+  size_t dot = domain.find('.');
+  return dot != std::string::npos && domain.front() != '.' && domain.back() != '.' &&
+         domain.find("..") == std::string::npos;
+}
+
+json parseObject(const httplib::Request& req) {
+  requireJson(req);
+  json parsed = json::parse(req.body, nullptr, false);
   if (parsed.is_discarded() || !parsed.is_object()) throw BadRequest("Body must be a JSON object");
   return parsed;
 }
@@ -142,13 +168,9 @@ void registerRoutes(httplib::Server& server, Database& db) {
   // Creates an account and logs it in.
   server.Post("/api/signup", [&db](const httplib::Request& req, httplib::Response& res) {
     try {
-      json body = parseObject(req.body);
+      json body = parseObject(req);
       Credentials creds = parseCredentials(body);
-      size_t at = creds.email.find('@');
-      if (at == std::string::npos || at == 0 || creds.email.find('.', at) == std::string::npos ||
-          creds.email.size() > 254 || creds.email.find(' ') != std::string::npos) {
-        throw BadRequest("Enter a valid email address");
-      }
+      if (!isValidEmail(creds.email)) throw BadRequest("Enter a valid email address");
       if (creds.password.size() < kMinPasswordLength) {
         throw BadRequest("Password must be at least " + std::to_string(kMinPasswordLength) + " characters");
       }
@@ -173,7 +195,7 @@ void registerRoutes(httplib::Server& server, Database& db) {
 
   server.Post("/api/login", [&db](const httplib::Request& req, httplib::Response& res) {
     try {
-      Credentials creds = parseCredentials(parseObject(req.body));
+      Credentials creds = parseCredentials(parseObject(req));
       auto found = db.findStudentByEmail(creds.email);
       bool ok = false;
       if (found && creds.password.size() <= kMaxPasswordLength) {
@@ -183,6 +205,9 @@ void registerRoutes(httplib::Server& server, Database& db) {
       }
       // The same message either way, so nobody can find out which emails have accounts.
       if (!ok) return sendError(res, 401, "Wrong email or password");
+      // Replace any session this browser already had, so old tokens don't pile up.
+      std::string oldToken = readCookie(req, kCookieName);
+      if (!oldToken.empty()) db.deleteSession(oldToken);
       startSession(db, res, found->studentId);
       sendJson(res, *db.student(found->studentId));
     } catch (const BadRequest& e) {
@@ -220,6 +245,7 @@ void registerRoutes(httplib::Server& server, Database& db) {
     int studentId;
     if (!currentStudent(db, req, res, studentId)) return;
     try {
+      requireJson(req);
       SavedPlan saved = db.savePlan(studentId, parsePlanBody(req.body));
       sendJson(res, {{"planId", saved.planId}, {"lastSaved", saved.lastSaved}});
     } catch (const BadRequest& e) {
