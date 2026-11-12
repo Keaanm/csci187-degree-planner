@@ -62,7 +62,7 @@ describe('Catalog.requirementsSatisfiedBy', () => {
 
 describe('Catalog.coursesRequiring', () => {
   it('lists the courses that need the course as a prerequisite', () => {
-    expect(codes(lookup.coursesRequiring('CSCI 10'))).toEqual(['CSCI 60', 'CSEN 11']);
+    expect(codes(lookup.coursesRequiring('CSCI 10'))).toEqual(['CSCI 60', 'CSCI 127', 'CSCI 146', 'CSCI 165', 'CSCI 166', 'CSEN 11']);
   });
 
   it('includes courses where it is one option in an either/or group', () => {

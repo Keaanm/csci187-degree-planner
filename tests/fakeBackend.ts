@@ -2,6 +2,7 @@
 // A fake backend for the app tests, so they run without the C++ server.
 import { vi } from 'vitest';
 import courseData from '../src/data/courses.json';
+import programData from '../src/data/programs.json';
 import requirementData from '../src/data/requirements.json';
 
 export interface SavedPlan {
@@ -48,7 +49,16 @@ export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true
 
     if (url === '/api/courses') return json(200, courseData);
     if (url === '/api/requirements') {
-      return json(200, requirementData.map((r, i) => ({ requirementId: i + 1, count: r.courses.length, ...r })));
+      return json(
+        200,
+        requirementData.map(({ program, ...r }, i) => ({
+          requirementId: i + 1,
+          count: r.courses.length,
+          units: null,
+          programId: programData.findIndex((p) => p.name === program) + 1,
+          ...r,
+        })),
+      );
     }
     if (url === '/api/me') {
       if (puts.meStillLoggedIn) return json(200, ACCOUNT);

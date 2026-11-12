@@ -40,8 +40,15 @@ interface RequirementJson {
   requirementId: number;
   description: string;
   count: number;
+  programId: number;
+  units: number | null;
   courses: string[];
 }
+
+// Until a plan can choose its emphasis, the planner checks the major's requirements and the
+// Software emphasis's (program ids 1 and 2 in programs.json). The other emphases and the
+// University Core are in the API but not checked yet.
+export const CHECKED_PROGRAM_IDS = [1, 2];
 
 interface PlanJson {
   planId: number;
@@ -61,7 +68,9 @@ export async function fetchCourses(fetchFn: Fetch = fetch): Promise<Course[]> {
 
 export async function fetchRequirements(fetchFn: Fetch = fetch): Promise<DegreeRequirement[]> {
   const requirements = await getJson<RequirementJson[]>(fetchFn, '/api/requirements');
-  return requirements.map((r) => new DegreeRequirement(r.description, r.courses, r.count));
+  return requirements
+    .filter((r) => CHECKED_PROGRAM_IDS.includes(r.programId))
+    .map((r) => new DegreeRequirement(r.description, r.courses, r.count));
 }
 
 // The logged-in student, or null when nobody is logged in.
