@@ -108,6 +108,18 @@ Database::Database(const std::string& path) {
   }
   exec("PRAGMA foreign_keys = ON");
   createTables();
+  createProgramTable();
+}
+
+// The major, its emphases and the University Core. Seeded from programs.json.
+void Database::createProgramTable() {
+  exec(R"sql(
+    CREATE TABLE IF NOT EXISTS program (
+      program_id INTEGER PRIMARY KEY,
+      name       TEXT NOT NULL,
+      kind       TEXT NOT NULL CHECK (kind IN ('major', 'emphasis', 'core'))
+    );
+  )sql");
 }
 
 Database::~Database() { sqlite3_close(db_); }
@@ -197,6 +209,7 @@ void Database::createTables() {
 void Database::seed(const std::string& dataDir) {
   json courseData = readJsonFile(dataDir + "/courses.json");
   json requirementData = readJsonFile(dataDir + "/requirements.json");
+  json programData = readJsonFile(dataDir + "/programs.json");
 
   std::lock_guard<std::mutex> lock(mutex_);
   exec("BEGIN");
@@ -280,6 +293,24 @@ void Database::seed(const std::string& dataDir) {
       }
       ++requirementId;
     }
+
+    // Program ids are their position in programs.json, starting at 1. Upserted by id, not
+    // deleted and reinserted, so anything that points at a program keeps pointing at it.
+    Statement program(db_, R"sql(
+      INSERT INTO program (program_id, name, kind) VALUES (?, ?, ?)
+      ON CONFLICT(program_id) DO UPDATE SET name = excluded.name, kind = excluded.kind)sql");
+    int programId = 1;
+    for (const auto& p : programData) {
+      std::string kind = p.at("kind");
+      if (kind != "major" && kind != "emphasis" && kind != "core") {
+        throw std::runtime_error("programs.json: \"" + kind + "\" isn't major, emphasis or core");
+      }
+      program.bind(1, programId++).bind(2, p.at("name").get<std::string>()).bind(3, kind);
+      program.run();
+    }
+    Statement dropPrograms(db_, "DELETE FROM program WHERE program_id >= ?");
+    dropPrograms.bind(1, programId);
+    dropPrograms.run();
     exec("COMMIT");
   } catch (...) {
     exec("ROLLBACK");
@@ -332,6 +363,16 @@ json Database::requirements() {
                         {"courses", json::array()}});
     }
     if (!all.isNull(3)) result.back()["courses"].push_back(all.textAt(3));
+  }
+  return result;
+}
+
+json Database::programs() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  json result = json::array();
+  Statement all(db_, "SELECT program_id, name, kind FROM program ORDER BY program_id");
+  while (all.step()) {
+    result.push_back({{"programId", all.intAt(0)}, {"name", all.textAt(1)}, {"kind", all.textAt(2)}});
   }
   return result;
 }

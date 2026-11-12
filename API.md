@@ -124,6 +124,19 @@ Response: the plan id and the new last-saved time (ISO 8601).
 
 Return **400** if the body isn't in this shape. The frontend shows an error for any non-2xx response.
 
+## `GET /api/programs`
+
+Every program: the major, its emphases and the University Core. `kind` is `"major"`, `"emphasis"` or `"core"`. A plan's requirements are the major's, its emphasis's, and the Core's. **401** if not logged in.
+
+```json
+[
+  { "programId": 1, "name": "Computer Science (B.S.)", "kind": "major" },
+  { "programId": 2, "name": "Software", "kind": "emphasis" }
+]
+```
+
+Program ids are the program's position in `src/data/programs.json`, starting at 1, and stay the same when the server reseeds.
+
 ## Next routes (agreed, not built yet)
 
 These are the routes for the rest of the final project, agreed before anyone builds them, so the backend and frontend can be built at the same time. Move each one into the sections above (and remove this note from it) in the pull request that builds it.
@@ -154,15 +167,7 @@ Response **201** with the new plan in the same shape as the list. **400** for an
 
 ### Emphases and the University Core (due Sun Nov 15)
 
-`GET /api/programs` lists every program. `kind` is `"major"`, `"emphasis"` or `"core"`. A plan's requirements are the major's, its emphasis's, and the Core's.
-
-```json
-[
-  { "programId": 1, "name": "Computer Science (B.S.)", "kind": "major" },
-  { "programId": 2, "name": "Software", "kind": "emphasis" },
-  { "programId": 9, "name": "University Core", "kind": "core" }
-]
-```
+`GET /api/programs` is built (see above). `programs.json` lists only the major and the Software emphasis so far; the other emphases and the University Core are still to add.
 
 `GET /api/requirements` adds `programId` to each requirement, and `units` for requirements measured in units instead of courses (like the Core), which is otherwise `null`.
 
@@ -198,6 +203,7 @@ session             (token PK, student_id, expires_at)            -- has
 course              (course_id PK, code UNIQUE, title, units, description)
 course_prerequisite (course_id, prerequisite_id, prereq_group)   -- requires
 degree_requirement  (requirement_id PK, description, count)
+program             (program_id PK, name, kind)
 course_requirement  (course_id, requirement_id, position)        -- satisfies
 degree_plan         (plan_id PK, student_id, last_saved)     -- owns
 plan_course         (plan_id, course_id, quarter, status, position) -- contains
@@ -212,4 +218,4 @@ Differences from the ER diagram, in `server/src/Database.cpp`:
 - Plans saved before accounts existed had no owner, so the server drops them the first time it starts with the new tables.
 - `PUT` also returns **400** for a course that isn't offered, a course listed twice, or a quarter over 18 units.
 
-The backend seeds the database from `src/data/courses.json` and `src/data/requirements.json` on every start. Every prerequisite and requirement course must be a course in `courses.json`, or the server won't start.
+The backend seeds the database from `src/data/courses.json`, `src/data/requirements.json` and `src/data/programs.json` on every start. Every prerequisite and requirement course must be a course in `courses.json`, or the server won't start.

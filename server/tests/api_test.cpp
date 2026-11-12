@@ -362,6 +362,21 @@ int main() {
     CHECK(status(bob->Put("/api/plans/1", R"({"courses": []})", "application/json")) == 404);
   }
 
+  // GET /api/programs needs a login and lists every program in programs.json, by id.
+  {
+    CHECK(status(client.Get("/api/programs")) == 401);
+    auto res = alice->Get("/api/programs");
+    CHECK(status(res) == 200);
+    // R"json(...)json" because the name has )" in it, which would end a plain R"(...)".
+    CHECK(body(res) == json::parse(R"json([
+      {"programId": 1, "name": "Computer Science (B.S.)", "kind": "major"},
+      {"programId": 2, "name": "Software", "kind": "emphasis"}
+    ])json"));
+    // Reseeding keeps the ids.
+    db.seed(DEFAULT_DATA_DIR);
+    CHECK(body(alice->Get("/api/programs")).size() == 2);
+  }
+
   // Unknown routes are a 404 with an error message.
   {
     auto res = client.Get("/api/nope");

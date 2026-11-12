@@ -47,12 +47,14 @@ class Database {
   Database(const Database&) = delete;
   Database& operator=(const Database&) = delete;
 
-  // Loads courses.json and requirements.json from dataDir. Run on every start so the
+  // Loads courses.json, requirements.json and programs.json from dataDir. Run on every start so the
   // database always matches the files the frontend checks the plan against.
   void seed(const std::string& dataDir);
 
   nlohmann::json courses();
   nlohmann::json requirements();
+  // Every program (the major, its emphases, the University Core), by id.
+  nlohmann::json programs();
   // The student's plan, or std::nullopt if they have never saved one.
   std::optional<nlohmann::json> plan(int studentId);
   // Replaces every course in the student's plan, creating the plan on the first save.
@@ -76,6 +78,8 @@ class Database {
   bool hasColumn(const std::string& table, const std::string& column);
   // Callers must hold mutex_.
   std::optional<int> firstPlanId(int studentId);
+
+  void createProgramTable();
 
   sqlite3* db_ = nullptr;
   std::mutex mutex_;
