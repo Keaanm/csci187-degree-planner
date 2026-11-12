@@ -109,6 +109,18 @@ Database::Database(const std::string& path) {
   exec("PRAGMA foreign_keys = ON");
   createTables();
   createProgramTable();
+  addPlanColumns();
+}
+
+// Several plans: each has a name and the emphasis it follows (NULL until one is chosen).
+// Added with ALTER TABLE so existing plans are kept; they're named "Main plan".
+void Database::addPlanColumns() {
+  if (!hasColumn("degree_plan", "name")) {
+    exec("ALTER TABLE degree_plan ADD COLUMN name TEXT NOT NULL DEFAULT 'Main plan'");
+  }
+  if (!hasColumn("degree_plan", "program_id")) {
+    exec("ALTER TABLE degree_plan ADD COLUMN program_id INTEGER REFERENCES program(program_id) ON DELETE SET NULL");
+  }
 }
 
 // The major, its emphases and the University Core. Seeded from programs.json.
@@ -412,16 +424,26 @@ std::optional<json> Database::plan(int studentId) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto planId = firstPlanId(studentId);
   if (!planId) return std::nullopt;
+  return planWithCourses(*planId);
+}
+
+std::optional<json> Database::planById(int studentId, int planId) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!ownsPlan(studentId, planId)) return std::nullopt;
+  return planWithCourses(planId);
+}
+
+json Database::planWithCourses(int planId) {
   Statement find(db_, "SELECT last_saved FROM degree_plan WHERE plan_id = ?");
-  find.bind(1, *planId);
+  find.bind(1, planId);
   find.step();
-  json result = {{"planId", *planId}, {"lastSaved", find.textAt(0)}, {"courses", json::array()}};
+  json result = {{"planId", planId}, {"lastSaved", find.textAt(0)}, {"courses", json::array()}};
 
   Statement rows(db_, R"sql(
     SELECT c.code, pc.quarter, pc.status FROM plan_course pc
     JOIN course c ON c.course_id = pc.course_id
     WHERE pc.plan_id = ? ORDER BY pc.quarter, pc.position)sql");
-  rows.bind(1, *planId);
+  rows.bind(1, planId);
   while (rows.step()) {
     result["courses"].push_back(
         {{"code", rows.textAt(0)}, {"quarter", rows.intAt(1)}, {"status", rows.textAt(2)}});
@@ -429,7 +451,104 @@ std::optional<json> Database::plan(int studentId) {
   return result;
 }
 
-SavedPlan Database::savePlan(int studentId, const std::vector<PlanRow>& rows) {
+bool Database::ownsPlan(int studentId, int planId) {
+  Statement find(db_, "SELECT 1 FROM degree_plan WHERE plan_id = ? AND student_id = ?");
+  find.bind(1, planId).bind(2, studentId);
+  return find.step();
+}
+
+// shared is always false until share links are built.
+json Database::planSummary(int planId) {
+  Statement find(db_, "SELECT name, program_id, last_saved FROM degree_plan WHERE plan_id = ?");
+  find.bind(1, planId);
+  find.step();
+  return {{"planId", planId},
+          {"name", find.textAt(0)},
+          {"programId", find.isNull(1) ? json(nullptr) : json(find.intAt(1))},
+          {"lastSaved", find.textAt(2)},
+          {"shared", false}};
+}
+
+void Database::checkEmphasis(std::optional<int> programId) {
+  if (!programId) return;
+  Statement find(db_, "SELECT 1 FROM program WHERE program_id = ? AND kind = 'emphasis'");
+  find.bind(1, *programId);
+  if (!find.step()) throw BadRequest("\"programId\" must be an emphasis");
+}
+
+json Database::plans(int studentId) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  json result = json::array();
+  std::vector<int> ids;
+  {
+    Statement all(db_, "SELECT plan_id FROM degree_plan WHERE student_id = ? ORDER BY plan_id");
+    all.bind(1, studentId);
+    while (all.step()) ids.push_back(all.intAt(0));
+  }
+  for (int id : ids) result.push_back(planSummary(id));
+  return result;
+}
+
+json Database::createPlan(int studentId, const std::string& name, std::optional<int> programId,
+                          std::optional<int> copyFrom) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (copyFrom && !ownsPlan(studentId, *copyFrom)) throw NotFound("Plan not found");
+  checkEmphasis(programId);
+  exec("BEGIN");
+  try {
+    Statement create(db_, "INSERT INTO degree_plan (student_id, last_saved, name, program_id) VALUES (?, ?, ?, ?)");
+    create.bind(1, studentId).bind(2, nowIso()).bind(3, name);
+    if (programId) create.bind(4, *programId);  // left unbound, it's NULL
+    create.run();
+    int planId = static_cast<int>(sqlite3_last_insert_rowid(db_));
+    if (copyFrom) {
+      // Every column but plan_id, so the copy keeps whatever plan_course stores.
+      Statement copy(db_, R"sql(
+        INSERT INTO plan_course (plan_id, course_id, quarter, status, position)
+          SELECT ?, course_id, quarter, status, position FROM plan_course WHERE plan_id = ?)sql");
+      copy.bind(1, planId).bind(2, *copyFrom);
+      copy.run();
+    }
+    exec("COMMIT");
+    return planSummary(planId);
+  } catch (...) {
+    exec("ROLLBACK");
+    throw;
+  }
+}
+
+json Database::updatePlan(int studentId, int planId, const PlanChanges& changes) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!ownsPlan(studentId, planId)) throw NotFound("Plan not found");
+  if (changes.changeProgram) checkEmphasis(changes.programId);
+  if (changes.name) {
+    Statement rename(db_, "UPDATE degree_plan SET name = ? WHERE plan_id = ?");
+    rename.bind(1, *changes.name).bind(2, planId);
+    rename.run();
+  }
+  if (changes.changeProgram) {
+    Statement program(db_, "UPDATE degree_plan SET program_id = ? WHERE plan_id = ?");
+    if (changes.programId) program.bind(1, *changes.programId);  // left unbound, it's NULL
+    program.bind(2, planId);
+    program.run();
+  }
+  return planSummary(planId);
+}
+
+void Database::deletePlan(int studentId, int planId) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!ownsPlan(studentId, planId)) throw NotFound("Plan not found");
+  Statement count(db_, "SELECT COUNT(*) FROM degree_plan WHERE student_id = ?");
+  count.bind(1, studentId);
+  count.step();
+  if (count.intAt(0) <= 1) throw BadRequest("You need at least one plan");
+  // plan_course rows go with it (ON DELETE CASCADE).
+  Statement remove(db_, "DELETE FROM degree_plan WHERE plan_id = ?");
+  remove.bind(1, planId);
+  remove.run();
+}
+
+SavedPlan Database::savePlan(int studentId, const std::vector<PlanRow>& rows, std::optional<int> targetPlan) {
   std::lock_guard<std::mutex> lock(mutex_);
 
   // Check every row before writing anything.
@@ -453,8 +572,9 @@ SavedPlan Database::savePlan(int studentId, const std::vector<PlanRow>& rows) {
   int planId;
   exec("BEGIN");
   try {
-    // The student's first plan, created on their first save.
-    if (auto existing = firstPlanId(studentId)) {
+    // The plan asked for, or else the student's first plan, created on their first save.
+    if (targetPlan && !ownsPlan(studentId, *targetPlan)) throw NotFound("Plan not found");
+    if (auto existing = targetPlan ? targetPlan : firstPlanId(studentId)) {
       planId = *existing;
       Statement touch(db_, "UPDATE degree_plan SET last_saved = ? WHERE plan_id = ?");
       touch.bind(1, lastSaved).bind(2, planId);
