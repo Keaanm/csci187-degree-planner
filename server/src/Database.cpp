@@ -1,5 +1,6 @@
 #include "Database.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <ctime>
@@ -215,16 +216,46 @@ void Database::createTables() {
       last_saved TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS degree_plan_student ON degree_plan(student_id);
-    -- position keeps the order courses were added within each quarter.
-    CREATE TABLE IF NOT EXISTS plan_course (
+  )sql");
+  createPlanCourse("plan_course");
+
+  // Before retakes, plan_course allowed each course once per plan and had no 'failed'
+  // status. Rebuild it with the new key and status, copying every saved row.
+  bool beforeRetakes;
+  {
+    // Scoped so the statement is finished before the table is dropped.
+    Statement old(db_, "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'plan_course'");
+    beforeRetakes = old.step() && old.textAt(0).find("'failed'") == std::string::npos;
+  }
+  if (beforeRetakes) {
+    exec("BEGIN");
+    try {
+      createPlanCourse("plan_course_new");
+      exec(R"sql(
+        INSERT INTO plan_course_new (plan_id, course_id, quarter, status, position)
+          SELECT plan_id, course_id, quarter, status, position FROM plan_course;
+        DROP TABLE plan_course;
+        ALTER TABLE plan_course_new RENAME TO plan_course;
+      )sql");
+      exec("COMMIT");
+    } catch (...) {
+      exec("ROLLBACK");
+      throw;
+    }
+  }
+}
+
+// position keeps the order courses were added within each quarter. A course can be in a
+// plan more than once (a retake after a failed attempt), but only once per quarter.
+void Database::createPlanCourse(const std::string& table) {
+  exec("CREATE TABLE IF NOT EXISTS " + table + R"sql( (
       plan_id   INTEGER NOT NULL REFERENCES degree_plan(plan_id) ON DELETE CASCADE,
       course_id INTEGER NOT NULL REFERENCES course(course_id) ON DELETE CASCADE,
       quarter   INTEGER NOT NULL CHECK (quarter BETWEEN 0 AND 11),
-      status    TEXT NOT NULL CHECK (status IN ('planned', 'completed')),
+      status    TEXT NOT NULL CHECK (status IN ('planned', 'completed', 'failed')),
       position  INTEGER NOT NULL,
-      PRIMARY KEY (plan_id, course_id)
-    );
-  )sql");
+      PRIMARY KEY (plan_id, course_id, quarter)
+    ))sql");
 }
 
 void Database::seed(const std::string& dataDir) {
@@ -553,11 +584,11 @@ SavedPlan Database::savePlan(int studentId, const std::vector<PlanRow>& rows, st
 
   // Check every row before writing anything.
   std::vector<int> courseIds;
-  std::set<std::string> seen;
+  std::map<std::string, std::vector<const PlanRow*>> attempts;  // code -> its rows
   std::map<int, int> unitsInQuarter;
   Statement findCourse(db_, "SELECT course_id, units FROM course WHERE code = ?");
   for (const auto& row : rows) {
-    if (!seen.insert(row.code).second) throw BadRequest(row.code + " is in the plan more than once");
+    attempts[row.code].push_back(&row);
     findCourse.bind(1, row.code);
     if (!findCourse.step()) throw BadRequest(row.code + " is not an offered course");
     courseIds.push_back(findCourse.intAt(0));
@@ -566,6 +597,20 @@ SavedPlan Database::savePlan(int studentId, const std::vector<PlanRow>& rows, st
                        std::to_string(kMaxUnitsPerQuarter) + " units");
     }
     findCourse.reset();
+  }
+  // Same rule as the frontend: a course can be in the plan more than once only if every
+  // attempt but the last is failed, and each attempt is in a later quarter than the one before.
+  for (auto& [code, list] : attempts) {
+    std::stable_sort(list.begin(), list.end(),
+                     [](const PlanRow* a, const PlanRow* b) { return a->quarter < b->quarter; });
+    for (size_t i = 1; i < list.size(); ++i) {
+      if (list[i]->quarter == list[i - 1]->quarter) {
+        throw BadRequest(code + " is in " + quarterLabel(list[i]->quarter) + " more than once");
+      }
+      if (list[i - 1]->status != "failed") {
+        throw BadRequest(code + " is in the plan more than once; only a failed attempt can be retaken");
+      }
+    }
   }
 
   std::string lastSaved = nowIso();
