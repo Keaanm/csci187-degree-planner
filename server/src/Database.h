@@ -20,6 +20,18 @@ struct EmailTaken : std::runtime_error {
   using std::runtime_error::runtime_error;
 };
 
+// Thrown when a plan id isn't one of the logged-in student's plans (the routes send a 404).
+struct NotFound : std::runtime_error {
+  using std::runtime_error::runtime_error;
+};
+
+// What PATCH /api/me/plans/:planId changes. A field left empty stays as it is.
+struct PlanChanges {
+  std::optional<std::string> name;
+  bool changeProgram = false;
+  std::optional<int> programId;  // used when changeProgram; empty means no emphasis
+};
+
 // What login needs to check a password.
 struct StudentLogin {
   int studentId;
@@ -58,7 +70,21 @@ class Database {
   // The student's plan, or std::nullopt if they have never saved one.
   std::optional<nlohmann::json> plan(int studentId);
   // Replaces every course in the student's plan, creating the plan on the first save.
-  SavedPlan savePlan(int studentId, const std::vector<PlanRow>& rows);
+  // With targetPlan, saves that plan instead, and throws NotFound if it isn't the student's.
+  SavedPlan savePlan(int studentId, const std::vector<PlanRow>& rows, std::optional<int> targetPlan = std::nullopt);
+
+  // Several plans. Every method throws NotFound for a plan id that isn't the student's,
+  // and BadRequest for a program id that isn't an emphasis.
+  // The student's plans, oldest first: { planId, name, programId, lastSaved, shared }.
+  nlohmann::json plans(int studentId);
+  // A new plan, empty or with copyFrom's courses. Returns it in the same shape as plans().
+  nlohmann::json createPlan(int studentId, const std::string& name, std::optional<int> programId,
+                            std::optional<int> copyFrom);
+  nlohmann::json updatePlan(int studentId, int planId, const PlanChanges& changes);
+  // Throws BadRequest for the student's only plan.
+  void deletePlan(int studentId, int planId);
+  // { planId, lastSaved, courses }, like plan(), or std::nullopt if it isn't the student's.
+  std::optional<nlohmann::json> planById(int studentId, int planId);
 
   // email should already be trimmed and lowercased. Throws EmailTaken. Returns the new id.
   int createStudent(const std::string& email, const std::string& passwordHash, int startYear);
@@ -80,6 +106,12 @@ class Database {
   std::optional<int> firstPlanId(int studentId);
 
   void createProgramTable();
+  void addPlanColumns();
+  // Callers must hold mutex_.
+  bool ownsPlan(int studentId, int planId);
+  nlohmann::json planSummary(int planId);
+  nlohmann::json planWithCourses(int planId);
+  void checkEmphasis(std::optional<int> programId);
 
   sqlite3* db_ = nullptr;
   std::mutex mutex_;

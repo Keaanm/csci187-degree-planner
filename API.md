@@ -143,6 +143,42 @@ Response: the plan id and the new last-saved time (ISO 8601).
 
 Return **400** if the body isn't in this shape. The frontend shows an error for any non-2xx response.
 
+## Several plans
+
+A student can have several plans, for example a copy to try a "what if". Every route here needs a login (**401** without one). A plan id that isn't one of the logged-in student's plans is a **404**, the same as one that doesn't exist, so a student can't find out which plan ids exist. `POST`, `PATCH` and `PUT` need `Content-Type: application/json`.
+
+### `GET /api/me/plans`
+
+The student's plans, oldest first. `programId` is the emphasis the plan follows, or `null` until one is chosen. `shared` is `false` until share links are built.
+
+```json
+[{ "planId": 3, "name": "Main plan", "programId": 2, "lastSaved": "2026-11-12T18:00:00.000Z", "shared": false }]
+```
+
+A plan saved before several plans existed is named "Main plan", with `programId: null`.
+
+### `POST /api/me/plans`
+
+Creates a plan. `programId` and `copyFrom` are optional. With `copyFrom`, the new plan starts with a copy of that plan's courses.
+
+```json
+{ "name": "What if I study abroad", "programId": 2, "copyFrom": 3 }
+```
+
+Response **201** with the new plan, in the same shape as the list. The name is trimmed. **400** for a missing or empty name, one over 60 characters (each UTF-8 character counts once), or a `programId` that isn't an emphasis (`null` is fine). **404** if `copyFrom` isn't one of the student's plans.
+
+### `PATCH /api/me/plans/:planId`
+
+Renames a plan or changes its emphasis. Body: `{ "name": "...", "programId": 2 }`, either field optional; `"programId": null` clears the emphasis. Response **200** with the plan. **400** for the same bad values as `POST`; nothing changes then.
+
+### `DELETE /api/me/plans/:planId`
+
+Deletes a plan and its courses. Response **204**. **400** `"You need at least one plan"` for the student's only plan. The frontend asks before deleting.
+
+### `GET` and `PUT /api/me/plans/:planId`
+
+Load and save one plan, with the same bodies and errors as `GET` and `PUT /api/me/plan`.
+
 ## `GET /api/programs`
 
 Every program: the major, its emphases and the University Core. `kind` is `"major"`, `"emphasis"` or `"core"`. A plan's requirements are the major's, its emphasis's, and the Core's. **401** if not logged in.
@@ -168,25 +204,7 @@ Schema changes must keep existing students and plans: add columns with `ALTER TA
 
 ### Several plans (due Sun Nov 15)
 
-`GET /api/me/plans` lists the student's plans, oldest first:
-
-```json
-[{ "planId": 3, "name": "Main plan", "programId": 2, "lastSaved": "2026-11-12T18:00:00.000Z", "shared": false }]
-```
-
-`POST /api/me/plans` creates a plan. `copyFrom` is optional: the new plan starts with that plan's courses, for a "what if" plan.
-
-```json
-{ "name": "What if I study abroad", "programId": 2, "copyFrom": 3 }
-```
-
-Response **201** with the new plan in the same shape as the list. **400** for an empty name or one over 60 characters, or a `programId` that isn't an emphasis.
-
-`PATCH /api/me/plans/:planId` renames a plan or changes its emphasis. Body: `{ "name": "...", "programId": 2 }`, either field optional. Response **200** with the plan.
-
-`DELETE /api/me/plans/:planId` deletes a plan and its courses. Response **204**. **400** `"You need at least one plan"` for the student's only plan. The frontend asks before deleting.
-
-`GET` and `PUT /api/me/plans/:planId` load and save one plan, with the same bodies as `GET` and `PUT /api/me/plan`. Once the frontend uses these, `/api/me/plan` is removed. Sign-up creates the first plan, called "Main plan", with no emphasis chosen (`programId: null`). Students who signed up before this (and may have no plan yet) get a "Main plan" when the server starts, so every student always has at least one.
+The routes are built (see "Several plans" above). Still to do: sign-up creates the first plan, called "Main plan", with no emphasis chosen (`programId: null`), and students who signed up before this (and may have no plan yet) get a "Main plan" when the server starts, so every student always has at least one. Until then a new student has no plans until their first save. Once the frontend uses the new routes, `/api/me/plan` is removed.
 
 ### Finished quarters and retakes (due Thu Nov 19)
 
@@ -231,7 +249,8 @@ Differences from the ER diagram, in `server/src/Database.cpp`:
 - `position` keeps the order of courses within a requirement and within a plan's quarter.
 - Requirement ids are the requirement's position in `requirements.json`, starting at 1.
 - `expires_at` on `session` is Unix time in seconds. Expired sessions are deleted the next time anyone logs in or signs up.
-- A student can own several plans in the ER diagram, but the API only uses each student's first plan for now.
+- `GET` and `PUT /api/me/plan` use the student's first plan (the oldest).
+- `degree_plan` also has `name` and `program_id` (the emphasis, or NULL). They were added with `ALTER TABLE`, so plans saved before them are kept and named "Main plan".
 - Plans saved before accounts existed had no owner, so the server drops them the first time it starts with the new tables.
 - `PUT` also returns **400** for a course that isn't offered, a course listed twice, or a quarter over 18 units.
 

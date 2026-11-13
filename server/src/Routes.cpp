@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <optional>
+#include <climits>
 #include <iostream>
 
 #include "Auth.h"
@@ -154,6 +156,39 @@ std::vector<PlanRow> parsePlanBody(const std::string& body) {
   return rows;
 }
 
+constexpr size_t kMaxPlanNameLength = 60;
+
+// A plan name: trimmed, 1 to 60 characters (counting each UTF-8 character once).
+std::string parsePlanName(const json& value) {
+  if (!value.is_string()) throw BadRequest("\"name\" must be a string");
+  std::string name = value;
+  auto notSpace = [](unsigned char c) { return !std::isspace(c); };
+  name.erase(name.begin(), std::find_if(name.begin(), name.end(), notSpace));
+  name.erase(std::find_if(name.rbegin(), name.rend(), notSpace).base(), name.end());
+  if (name.empty()) throw BadRequest("Plan name can't be empty");
+  size_t characters = std::count_if(name.begin(), name.end(), [](unsigned char c) { return (c & 0xC0) != 0x80; });
+  if (characters > kMaxPlanNameLength) {
+    throw BadRequest("Plan name must be at most " + std::to_string(kMaxPlanNameLength) + " characters");
+  }
+  return name;
+}
+
+// An integer id or null (no emphasis).
+std::optional<int> parseProgramId(const json& value) {
+  if (value.is_null()) return std::nullopt;
+  if (!value.is_number_integer()) throw BadRequest("\"programId\" must be an integer or null");
+  auto id = value.get<std::int64_t>();
+  // Out of range can't be a program; 0 is never one either, so checkEmphasis rejects it.
+  return (id < 1 || id > INT32_MAX) ? 0 : static_cast<int>(id);
+}
+
+// The :planId in /api/me/plans/:planId. An id too big for an int can't exist, so it's a 404.
+int planIdFrom(const httplib::Request& req) {
+  const std::string digits = req.matches[1];
+  if (digits.size() > 9) throw NotFound("Plan not found");
+  return std::stoi(digits);
+}
+
 }  // namespace
 
 void registerRoutes(httplib::Server& server, Database& db) {
@@ -257,6 +292,102 @@ void registerRoutes(httplib::Server& server, Database& db) {
       sendJson(res, {{"planId", saved.planId}, {"lastSaved", saved.lastSaved}});
     } catch (const BadRequest& e) {
       sendError(res, 400, e.what());
+    }
+  });
+
+  // ---- Several plans ----
+  // Every route needs a login. A plan id that isn't one of the student's plans is a 404,
+  // so a student can't find out which plan ids exist.
+
+  server.Get("/api/me/plans", [&db](const httplib::Request& req, httplib::Response& res) {
+    int studentId;
+    if (!currentStudent(db, req, res, studentId)) return;
+    sendJson(res, db.plans(studentId));
+  });
+
+  // Creates a plan: empty, or a copy of copyFrom's courses for a "what if" plan.
+  server.Post("/api/me/plans", [&db](const httplib::Request& req, httplib::Response& res) {
+    int studentId;
+    if (!currentStudent(db, req, res, studentId)) return;
+    try {
+      json body = parseObject(req);
+      if (!body.contains("name")) throw BadRequest("Body needs a \"name\"");
+      std::string name = parsePlanName(body["name"]);
+      std::optional<int> programId = body.contains("programId") ? parseProgramId(body["programId"]) : std::nullopt;
+      std::optional<int> copyFrom;
+      if (body.contains("copyFrom") && !body["copyFrom"].is_null()) {
+        if (!body["copyFrom"].is_number_integer()) throw BadRequest("\"copyFrom\" must be a plan id");
+        auto id = body["copyFrom"].get<std::int64_t>();
+        if (id < 1 || id > INT32_MAX) throw NotFound("Plan not found");
+        copyFrom = static_cast<int>(id);
+      }
+      sendJson(res, db.createPlan(studentId, name, programId, copyFrom), 201);
+    } catch (const BadRequest& e) {
+      sendError(res, 400, e.what());
+    } catch (const NotFound& e) {
+      sendError(res, 404, e.what());
+    }
+  });
+
+  // Renames a plan or changes its emphasis. Both fields are optional.
+  server.Patch(R"(/api/me/plans/(\d+))", [&db](const httplib::Request& req, httplib::Response& res) {
+    int studentId;
+    if (!currentStudent(db, req, res, studentId)) return;
+    try {
+      int planId = planIdFrom(req);
+      json body = parseObject(req);
+      PlanChanges changes;
+      if (body.contains("name")) changes.name = parsePlanName(body["name"]);
+      if (body.contains("programId")) {
+        changes.changeProgram = true;
+        changes.programId = parseProgramId(body["programId"]);
+      }
+      sendJson(res, db.updatePlan(studentId, planId, changes));
+    } catch (const BadRequest& e) {
+      sendError(res, 400, e.what());
+    } catch (const NotFound& e) {
+      sendError(res, 404, e.what());
+    }
+  });
+
+  server.Delete(R"(/api/me/plans/(\d+))", [&db](const httplib::Request& req, httplib::Response& res) {
+    int studentId;
+    if (!currentStudent(db, req, res, studentId)) return;
+    try {
+      db.deletePlan(studentId, planIdFrom(req));
+      res.status = 204;
+    } catch (const BadRequest& e) {
+      sendError(res, 400, e.what());
+    } catch (const NotFound& e) {
+      sendError(res, 404, e.what());
+    }
+  });
+
+  // Load and save one plan, with the same bodies as GET and PUT /api/me/plan.
+  server.Get(R"(/api/me/plans/(\d+))", [&db](const httplib::Request& req, httplib::Response& res) {
+    int studentId;
+    if (!currentStudent(db, req, res, studentId)) return;
+    try {
+      auto plan = db.planById(studentId, planIdFrom(req));
+      if (!plan) return sendError(res, 404, "Plan not found");
+      sendJson(res, *plan);
+    } catch (const NotFound& e) {
+      sendError(res, 404, e.what());
+    }
+  });
+
+  server.Put(R"(/api/me/plans/(\d+))", [&db](const httplib::Request& req, httplib::Response& res) {
+    int studentId;
+    if (!currentStudent(db, req, res, studentId)) return;
+    try {
+      int planId = planIdFrom(req);
+      requireJson(req);
+      SavedPlan saved = db.savePlan(studentId, parsePlanBody(req.body), planId);
+      sendJson(res, {{"planId", saved.planId}, {"lastSaved", saved.lastSaved}});
+    } catch (const BadRequest& e) {
+      sendError(res, 400, e.what());
+    } catch (const NotFound& e) {
+      sendError(res, 404, e.what());
     }
   });
 

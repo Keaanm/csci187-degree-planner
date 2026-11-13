@@ -375,6 +375,135 @@ int main() {
     CHECK(status(bob->Put("/api/plans/1", R"({"courses": []})", "application/json")) == 404);
   }
 
+  // ---- Several plans ----
+
+  // Every plans route needs a login.
+  {
+    CHECK(status(client.Get("/api/me/plans")) == 401);
+    CHECK(status(client.Post("/api/me/plans", R"({"name": "x"})", "application/json")) == 401);
+    CHECK(status(client.Get("/api/me/plans/1")) == 401);
+    CHECK(status(client.Put("/api/me/plans/1", R"({"courses": []})", "application/json")) == 401);
+    CHECK(status(client.Patch("/api/me/plans/1", R"({"name": "x"})", "application/json")) == 401);
+    CHECK(status(client.Delete("/api/me/plans/1")) == 401);
+  }
+
+  {
+    auto planUrl = [](int id) { return "/api/me/plans/" + std::to_string(id); };
+    auto postPlan = [&](httplib::Client& c, const json& b) { return c.Post("/api/me/plans", b.dump(), "application/json"); };
+    auto patchPlan = [&](httplib::Client& c, int id, const json& b) {
+      return c.Patch(planUrl(id), b.dump(), "application/json");
+    };
+
+    // Alice's plan from /api/me/plan is her first plan, named "Main plan" with no emphasis.
+    json mainPlan = body(alice->Get("/api/me/plan"));
+    int mainId = mainPlan["planId"];
+    auto list = alice->Get("/api/me/plans");
+    CHECK(status(list) == 200);
+    CHECK(body(list).size() == 1);
+    CHECK(body(list)[0] == json({{"planId", mainId}, {"name", "Main plan"}, {"programId", nullptr},
+                                 {"lastSaved", mainPlan["lastSaved"]}, {"shared", false}}));
+
+    // GET /api/me/plans/:planId has the same body as GET /api/me/plan.
+    CHECK(body(alice->Get(planUrl(mainId))) == mainPlan);
+
+    // A "what if" copy: trimmed name, an emphasis, and the same courses as the plan it copies.
+    auto created = postPlan(*alice, {{"name", "  What if I study abroad "}, {"programId", 2}, {"copyFrom", mainId}});
+    CHECK(status(created) == 201);
+    json copy = body(created);
+    int copyId = copy.value("planId", 0);
+    CHECK(copyId != mainId);
+    CHECK(copy["name"] == "What if I study abroad");
+    CHECK(copy["programId"] == 2);
+    CHECK(copy["shared"] == false);
+    CHECK(body(alice->Get(planUrl(copyId)))["courses"] == mainPlan["courses"]);
+    CHECK(body(alice->Get("/api/me/plans")).size() == 2);
+
+    // Without copyFrom or programId: an empty plan with no emphasis. Oldest plan first in the list.
+    auto empty = postPlan(*alice, {{"name", "Blank"}});
+    CHECK(status(empty) == 201);
+    int emptyId = body(empty).value("planId", 0);
+    CHECK(body(empty)["programId"] == nullptr);
+    CHECK(body(alice->Get(planUrl(emptyId)))["courses"].empty());
+    json all = body(alice->Get("/api/me/plans"));
+    CHECK(all.size() == 3 && all[0]["planId"] == mainId && all[2]["planId"] == emptyId);
+
+    // A 60-character name is fine, counting each UTF-8 character once.
+    std::string sixty;
+    for (int i = 0; i < 60; ++i) sixty += "\xC3\xA9";  // é
+    auto longName = postPlan(*alice, {{"name", sixty}});
+    CHECK(status(longName) == 201);
+    CHECK(status(alice->Delete(planUrl(body(longName).value("planId", 0)))) == 204);
+
+    // Bad bodies are 400s and create nothing.
+    const json badPlans[] = {
+        json::object(),
+        {{"name", ""}},
+        {{"name", "   "}},
+        {{"name", 5}},
+        {{"name", std::string(61, 'x')}},
+        {{"name", "x"}, {"programId", 1}},    // the major, not an emphasis
+        {{"name", "x"}, {"programId", 999}},  // no such program
+        {{"name", "x"}, {"programId", "2"}},
+        {{"name", "x"}, {"programId", 4294967298LL}},
+        {{"name", "x"}, {"copyFrom", "1"}},
+    };
+    for (const auto& bad : badPlans) {
+      auto res = postPlan(*alice, bad);
+      if (status(res) != 400) std::cerr << "Expected 400 for POST /api/me/plans: " << bad.dump() << "\n";
+      CHECK(status(res) == 400);
+    }
+    CHECK(status(alice->Post("/api/me/plans", R"({"name": "x"})", "text/plain")) == 400);
+    CHECK(body(alice->Get("/api/me/plans")).size() == 3);
+
+    // PATCH renames and changes the emphasis, each on its own; null clears the emphasis.
+    auto renamed = patchPlan(*alice, copyId, {{"name", "Abroad in spring"}});
+    CHECK(status(renamed) == 200);
+    CHECK(body(renamed)["name"] == "Abroad in spring");
+    CHECK(body(renamed)["programId"] == 2);
+    auto cleared = patchPlan(*alice, copyId, {{"programId", nullptr}});
+    CHECK(body(cleared)["programId"] == nullptr);
+    CHECK(body(cleared)["name"] == "Abroad in spring");
+    CHECK(body(patchPlan(*alice, copyId, {{"programId", 2}}))["programId"] == 2);
+    CHECK(status(patchPlan(*alice, copyId, json::object())) == 200);
+    CHECK(status(patchPlan(*alice, copyId, {{"name", ""}})) == 400);
+    CHECK(status(patchPlan(*alice, copyId, {{"programId", 1}})) == 400);
+    CHECK(body(alice->Get("/api/me/plans"))[1]["name"] == "Abroad in spring");  // unchanged by the 400s
+
+    // PUT saves one plan and leaves the others alone.
+    auto saved = alice->Put(planUrl(copyId), R"({"courses": [{"code": "CHEM 11", "quarter": 2, "status": "planned"}]})",
+                            "application/json");
+    CHECK(status(saved) == 200);
+    CHECK(body(saved)["planId"] == copyId);
+    CHECK(body(alice->Get(planUrl(copyId)))["courses"].size() == 1);
+    CHECK(body(alice->Get(planUrl(mainId)))["courses"] == mainPlan["courses"]);
+    CHECK(status(alice->Put(planUrl(copyId), R"({"courses": "nope"})", "application/json")) == 400);
+    CHECK(status(alice->Put(planUrl(copyId), R"({"courses": []})", "text/plain")) == 400);
+
+    // Another student's plans are 404s, the same as plans that don't exist.
+    auto carol = newStudent("carol@scu.edu");
+    CHECK(body(carol->Get("/api/me/plans")).empty());
+    CHECK(status(carol->Get(planUrl(mainId))) == 404);
+    CHECK(status(carol->Put(planUrl(mainId), R"({"courses": []})", "application/json")) == 404);
+    CHECK(status(patchPlan(*carol, mainId, {{"name", "Mine now"}})) == 404);
+    CHECK(status(carol->Delete(planUrl(mainId))) == 404);
+    CHECK(status(postPlan(*carol, {{"name", "Copy"}, {"copyFrom", mainId}})) == 404);
+    CHECK(status(postPlan(*carol, {{"name", "Copy"}, {"copyFrom", 2147483648LL}})) == 404);
+    CHECK(body(alice->Get(planUrl(mainId))) == mainPlan);  // untouched
+    CHECK(status(alice->Get("/api/me/plans/99999")) == 404);
+    CHECK(status(alice->Get("/api/me/plans/99999999999999999999")) == 404);
+    CHECK(status(alice->Get("/api/me/plans/abc")) == 404);
+
+    // DELETE removes a plan and its courses, but never the student's last plan.
+    CHECK(status(alice->Delete(planUrl(copyId))) == 204);
+    CHECK(status(alice->Get(planUrl(copyId))) == 404);
+    CHECK(status(alice->Delete(planUrl(copyId))) == 404);
+    CHECK(status(alice->Delete(planUrl(emptyId))) == 204);
+    auto last = alice->Delete(planUrl(mainId));
+    CHECK(status(last) == 400);
+    CHECK(body(last)["error"] == "You need at least one plan");
+    CHECK(body(alice->Get("/api/me/plans")).size() == 1);
+  }
+
   // GET /api/programs needs a login and lists every program in programs.json, by id.
   {
     CHECK(status(client.Get("/api/programs")) == 401);
@@ -434,6 +563,42 @@ int main() {
       {"code": "CSCI 10", "quarter": 0, "status": "completed"},
       {"code": "CSCI 60", "quarter": 1, "status": "planned"}
     ])"));
+    std::filesystem::remove(path);
+  }
+
+  // A database from before several plans: degree_plan has no name or program_id. The
+  // columns are added and the saved plan becomes "Main plan", with its courses kept.
+  {
+    auto path = std::filesystem::temp_directory_path() / "degree_planner_one_plan_test.db";
+    std::filesystem::remove(path);
+    sqlite3* old = nullptr;
+    sqlite3_open(path.string().c_str(), &old);
+    sqlite3_exec(old, R"sql(
+      CREATE TABLE student (student_id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE,
+                            password_hash TEXT NOT NULL, start_year INTEGER NOT NULL);
+      CREATE TABLE degree_plan (plan_id INTEGER PRIMARY KEY,
+                                student_id INTEGER NOT NULL REFERENCES student(student_id) ON DELETE CASCADE,
+                                last_saved TEXT NOT NULL);
+      INSERT INTO student VALUES (1, 'fay@scu.edu', 'not-a-real-hash', 2024);
+      INSERT INTO degree_plan VALUES (7, 1, '2026-11-01T00:00:00.000Z');
+    )sql", nullptr, nullptr, nullptr);
+    sqlite3_close(old);
+    {
+      Database migrated(path.string());
+      migrated.seed(DEFAULT_DATA_DIR);
+      migrated.savePlan(1, {{"CSCI 10", 0, "planned"}});
+      json plans = migrated.plans(1);
+      CHECK(plans.size() == 1);
+      CHECK(plans[0]["planId"] == 7);
+      CHECK(plans[0]["name"] == "Main plan");
+      CHECK(plans[0]["programId"] == nullptr);
+      auto plan = migrated.planById(1, 7);
+      CHECK(plan && (*plan)["courses"].size() == 1);
+    }
+    {
+      Database reopened(path.string());  // opening again doesn't add the columns twice
+      CHECK(reopened.plans(1).size() == 1);
+    }
     std::filesystem::remove(path);
   }
 
