@@ -26,7 +26,7 @@ function renderAt(path: string) {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
         <Suspense fallback={<p>Loading…</p>}>
-          <PlanProvider>
+          <PlanProvider planId={1}>
             <Routes>
               <Route path="/courses" element={<CoursesPage />} />
               <Route path="/courses/:code" element={<CoursePage />} />

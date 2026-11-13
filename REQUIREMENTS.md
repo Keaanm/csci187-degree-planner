@@ -31,7 +31,7 @@ The user should also be able to:
 2. Log in and out, and see only their own plans
 
 ### Planning
-1. Keep several named plans, and copy one to try a "what if" plan
+1. Keep several named plans, and copy one to try a "what if" plan (built)
 2. Choose their CS emphasis, and see the requirements for that emphasis and the University Core
 3. Have courses in quarters that have ended count as completed, after confirming which ones they passed
 4. Mark a course as failed and retake it in a later quarter

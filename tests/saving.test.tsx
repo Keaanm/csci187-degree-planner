@@ -31,7 +31,7 @@ function renderApp() {
   render(
     <QueryClientProvider client={client}>
       <Suspense fallback={<p>Loading…</p>}>
-        <PlanProvider autosaveDelay={DELAY}>
+        <PlanProvider planId={1} autosaveDelay={DELAY}>
           <SaveStatus />
           <PlanEditor />
         </PlanProvider>

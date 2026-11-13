@@ -204,7 +204,7 @@ Schema changes must keep existing students and plans: add columns with `ALTER TA
 
 ### Several plans (due Sun Nov 15)
 
-The routes are built (see "Several plans" above). Still to do: sign-up creates the first plan, called "Main plan", with no emphasis chosen (`programId: null`), and students who signed up before this (and may have no plan yet) get a "Main plan" when the server starts, so every student always has at least one. Until then a new student has no plans until their first save. Once the frontend uses the new routes, `/api/me/plan` is removed.
+The routes are built (see "Several plans" above), and the frontend uses them; it no longer calls `/api/me/plan`, so that route can be removed. Still to do: sign-up creates the first plan, called "Main plan", with no emphasis chosen (`programId: null`), and students who signed up before this (and may have no plan yet) get a "Main plan" when the server starts, so every student always has at least one. Until then, the frontend makes a "Main plan" itself (`POST /api/me/plans`) when the list is empty.
 
 ### Finished quarters and retakes (due Thu Nov 19)
 

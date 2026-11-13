@@ -21,7 +21,7 @@ Plan your 4-year schedule and track your progress toward the SCU Computer Scienc
    npm run dev
    ```
 
-4. Open http://localhost:5173 and create an account. Each account has its own plan.
+4. Open http://localhost:5173 and create an account. Each account has its own plans.
 
 The first run takes about a minute while CMake downloads and builds the C++ dependencies. If the page says "Couldn't load data from the server", wait for the API to start, then click **Try again**.
 
@@ -60,7 +60,8 @@ To start over with no accounts or plans, stop the server and delete `server/degr
 ## What the app covers so far
 
 - The B.S. in Computer Science with the Software emphasis. Our team preloads the courses and requirements.
-- Student accounts. A student signs up with their email, a password and the fall they started at SCU, and their plan is saved to their account in the backend's SQLite database.
+- Student accounts. A student signs up with their email, a password and the fall they started at SCU, and their plans are saved to their account in the backend's SQLite database.
+- Several plans per student: make, copy, rename, delete and switch between them, for example to try a "what if".
 
 The user requirements are in [REQUIREMENTS.md](REQUIREMENTS.md). The functional specifications are in [SPECIFICATIONS.md](SPECIFICATIONS.md). The API routes are in [API.md](API.md).
 

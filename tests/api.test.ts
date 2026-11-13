@@ -1,7 +1,21 @@
 // Keaan Mirchandani
 // Tests the API client with a fake fetch, so no backend is needed.
 import { describe, expect, it } from 'vitest';
-import { ApiError, fetchCourses, fetchMe, fetchPlan, fetchRequirements, logIn, logOut, savePlan, signUp } from '../src/api';
+import {
+  ApiError,
+  createPlan,
+  deletePlan,
+  fetchCourses,
+  fetchMe,
+  fetchPlan,
+  fetchPlans,
+  fetchRequirements,
+  logIn,
+  logOut,
+  renamePlan,
+  savePlan,
+  signUp,
+} from '../src/api';
 import { Course } from '../src/Course';
 import { DegreePlan } from '../src/DegreePlan';
 import { catalog } from './catalog';
@@ -62,17 +76,17 @@ describe('API client', () => {
         { code: 'CSCI 60', quarter: 1, status: 'planned' },
       ],
     });
-    const { plan, lastSaved } = await fetchPlan(catalog, fetchFn);
-    expect(calls[0].url).toBe('/api/me/plan');
+    const { plan, lastSaved } = await fetchPlan(3, catalog, fetchFn);
+    expect(calls[0].url).toBe('/api/me/plans/3');
     expect(plan.coursesIn(1).map((c) => c.code)).toEqual(['CSCI 60']);
     expect(plan.isCompleted('CSCI 10')).toBe(true);
     expect(plan.isCompleted('CSCI 60')).toBe(false);
     expect(lastSaved).toBe('2026-10-30T20:00:00.000Z');
   });
 
-  it('loads an empty plan when the plan has never been saved', async () => {
-    const { fetchFn } = fakeFetch(404);
-    const { plan, lastSaved } = await fetchPlan(catalog, fetchFn);
+  it('loads an empty plan that has never been saved', async () => {
+    const { fetchFn } = fakeFetch(200, { planId: 3, lastSaved: null, courses: [] });
+    const { plan, lastSaved } = await fetchPlan(3, catalog, fetchFn);
     expect(plan.totalUnits()).toBe(0);
     expect(lastSaved).toBeNull();
   });
@@ -87,14 +101,14 @@ describe('API client', () => {
         { code: 'CSCI 60', quarter: 1, status: 'planned' },
       ],
     });
-    const { plan } = await fetchPlan(offered, fetchFn);
+    const { plan } = await fetchPlan(1, offered, fetchFn);
     expect(plan.hasCourse('CSCI 10')).toBe(true);
     expect(plan.hasCourse('CSCI 60')).toBe(false);
   });
 
   it('only lets the loaded plan add courses the server offers', async () => {
     const offered = [new Course('CSCI 10', 'Introduction to Computer Science', '', 5)];
-    const { plan } = await fetchPlan(offered, fakeFetch(404).fetchFn);
+    const { plan } = await fetchPlan(1, offered, fakeFetch(200, { planId: 1, lastSaved: null, courses: [] }).fetchFn);
     expect(plan.addCourse(0, 'CSCI 10').hasCourse('CSCI 10')).toBe(true);
     expect(() => plan.addCourse(0, 'CSCI 60')).toThrow('CSCI 60 is not an offered course');
   });
@@ -102,8 +116,8 @@ describe('API client', () => {
   it('saves the whole plan as rows with a PUT and returns the new last-saved time', async () => {
     const { fetchFn, calls } = fakeFetch(200, { planId: 1, lastSaved: '2026-10-30T21:00:00.000Z' });
     const plan = DegreePlan.empty(catalog).addCourse(0, 'CSCI 10').markCompleted('CSCI 10');
-    const lastSaved = await savePlan(plan, fetchFn);
-    expect(calls[0].url).toBe('/api/me/plan');
+    const lastSaved = await savePlan(3, plan, fetchFn);
+    expect(calls[0].url).toBe('/api/me/plans/3');
     expect(calls[0].init?.method).toBe('PUT');
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({
       courses: [{ code: 'CSCI 10', quarter: 0, status: 'completed' }],
@@ -113,20 +127,66 @@ describe('API client', () => {
 
   it("shows the server's error message when it sends one", async () => {
     const { fetchFn } = fakeFetch(400, { error: 'CSCI 999 is not an offered course' });
-    await expect(savePlan(DegreePlan.empty(catalog), fetchFn)).rejects.toThrow('CSCI 999 is not an offered course');
+    await expect(savePlan(1, DegreePlan.empty(catalog), fetchFn)).rejects.toThrow('CSCI 999 is not an offered course');
   });
 
   it('throws when the server returns an error', async () => {
     await expect(fetchCourses(fakeFetch(500).fetchFn)).rejects.toThrow("The server can't be reached (500)");
-    await expect(fetchPlan(catalog, fakeFetch(500).fetchFn)).rejects.toThrow("The server can't be reached (500)");
-    await expect(savePlan(DegreePlan.empty(catalog), fakeFetch(400).fetchFn)).rejects.toThrow('The server returned 400');
+    await expect(fetchPlan(1, catalog, fakeFetch(500).fetchFn)).rejects.toThrow("The server can't be reached (500)");
+    await expect(savePlan(1, DegreePlan.empty(catalog), fakeFetch(400).fetchFn)).rejects.toThrow('The server returned 400');
   });
 
   it('gives errors their status, so a 401 can be told apart', async () => {
-    const error = await savePlan(DegreePlan.empty(catalog), fakeFetch(401, { error: 'You need to log in' }).fetchFn).catch((e) => e);
+    const error = await savePlan(1, DegreePlan.empty(catalog), fakeFetch(401, { error: 'You need to log in' }).fetchFn).catch((e) => e);
     expect(error).toBeInstanceOf(ApiError);
     expect(error.status).toBe(401);
     expect(error.message).toBe('You need to log in');
+  });
+});
+
+describe('API client plans', () => {
+  const main = { planId: 3, name: 'Main plan', programId: null, lastSaved: null, shared: false };
+
+  it("lists the student's plans", async () => {
+    const { fetchFn, calls } = fakeFetch(200, [main]);
+    expect(await fetchPlans(fetchFn)).toEqual([main]);
+    expect(calls.map((c) => c.url)).toEqual(['/api/me/plans']);
+  });
+
+  it('makes a "Main plan" for a student with no plans', async () => {
+    const calls: Call[] = [];
+    const fetchFn = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return init?.method === 'POST' ? new Response(JSON.stringify(main), { status: 201 }) : new Response('[]');
+    }) as typeof fetch;
+    expect(await fetchPlans(fetchFn)).toEqual([main]);
+    expect(calls[1].url).toBe('/api/me/plans');
+    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ name: 'Main plan' });
+  });
+
+  it('makes a plan, optionally as a copy of another', async () => {
+    const { fetchFn, calls } = fakeFetch(201, { ...main, planId: 4, name: 'Abroad' });
+    expect((await createPlan({ name: 'Abroad', copyFrom: 3 }, fetchFn)).planId).toBe(4);
+    expect(calls[0].init?.method).toBe('POST');
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ name: 'Abroad', copyFrom: 3 });
+  });
+
+  it('renames a plan with a PATCH', async () => {
+    const { fetchFn, calls } = fakeFetch(200, { ...main, name: 'Plan A' });
+    expect((await renamePlan(3, 'Plan A', fetchFn)).name).toBe('Plan A');
+    expect(calls[0].url).toBe('/api/me/plans/3');
+    expect(calls[0].init?.method).toBe('PATCH');
+    expect(new Headers(calls[0].init?.headers).get('Content-Type')).toBe('application/json');
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ name: 'Plan A' });
+  });
+
+  it("deletes a plan, and shows the server's reason when it can't", async () => {
+    const { fetchFn, calls } = fakeFetch(204);
+    await deletePlan(3, fetchFn);
+    expect(calls[0]).toMatchObject({ url: '/api/me/plans/3', init: { method: 'DELETE' } });
+    await expect(deletePlan(3, fakeFetch(400, { error: 'You need at least one plan' }).fetchFn)).rejects.toThrow(
+      'You need at least one plan',
+    );
   });
 });
 
