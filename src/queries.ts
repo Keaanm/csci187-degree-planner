@@ -9,8 +9,22 @@ import {
   useQueryClient,
   useSuspenseQuery,
 } from '@tanstack/react-query';
-import { ApiError, fetchCourses, fetchMe, fetchPlan, fetchRequirements, logIn, logOut, savePlan, signUp } from './api';
-import type { LoadedPlan, SignUp, Student } from './api';
+import {
+  ApiError,
+  createPlan,
+  deletePlan,
+  fetchCourses,
+  fetchMe,
+  fetchPlan,
+  fetchPlans,
+  fetchRequirements,
+  logIn,
+  logOut,
+  renamePlan,
+  savePlan,
+  signUp,
+} from './api';
+import type { LoadedPlan, PlanInfo, SignUp, Student } from './api';
 import { Catalog } from './Catalog';
 import type { DegreePlan } from './DegreePlan';
 
@@ -23,8 +37,10 @@ const sessionEndKey = ['sessionEnd'];
 export type SessionEnd = 'loggedOut' | 'expired' | null;
 const coursesQuery = queryOptions({ queryKey: ['courses'], queryFn: () => fetchCourses() });
 const requirementsQuery = queryOptions({ queryKey: ['requirements'], queryFn: () => fetchRequirements() });
-// Keyed by student, so logging in as someone else never shows the last student's plan.
-const planKey = (student: Student | null) => ['plan', student?.email ?? null];
+// Keyed by student, so logging in as someone else never shows the last student's plans.
+// Every key starts with 'plan', so ending a session removes them all.
+const planListKey = (student: Student | null) => ['plan', student?.email ?? null, 'list'];
+const planKey = (student: Student | null, planId: number) => ['plan', student?.email ?? null, planId];
 
 // A 401 from any route means the session ended (it expired, or the student logged out in
 // another tab), so the app goes back to the login page.
@@ -108,20 +124,71 @@ export function useCatalog() {
   return useMemo(() => new Catalog(courses, requirements), [courses, requirements]);
 }
 
-// The plan only accepts courses the server offers, so it loads after the courses.
-export function useSavedPlan() {
-  const courses = useCourses();
+// The student's plans, oldest first. Never empty.
+export function usePlanList() {
   const student = useMe();
-  return useSuspenseQuery({ queryKey: planKey(student), queryFn: () => fetchPlan(courses) }).data;
+  return useSuspenseQuery({ queryKey: planListKey(student), queryFn: () => fetchPlans() }).data;
 }
 
-export function useSavePlan() {
+// Changes one plan in the list, or removes it when `change` returns null.
+function useUpdatePlanList() {
+  const queryClient = useQueryClient();
+  const student = useMe();
+  return (planId: number, change: (plan: PlanInfo) => PlanInfo | null) =>
+    queryClient.setQueryData<PlanInfo[]>(planListKey(student), (plans) =>
+      plans?.flatMap((p) => {
+        if (p.planId !== planId) return [p];
+        const changed = change(p);
+        return changed ? [changed] : [];
+      }),
+    );
+}
+
+// The plan only accepts courses the server offers, so it loads after the courses.
+export function useSavedPlan(planId: number) {
+  const courses = useCourses();
+  const student = useMe();
+  return useSuspenseQuery({ queryKey: planKey(student, planId), queryFn: () => fetchPlan(planId, courses) }).data;
+}
+
+export function useSavePlan(planId: number) {
+  const queryClient = useQueryClient();
+  const student = useMe();
+  const updatePlanList = useUpdatePlanList();
+  return useMutation({
+    mutationFn: (plan: DegreePlan) => savePlan(planId, plan),
+    onSuccess: (lastSaved, plan) => {
+      queryClient.setQueryData<LoadedPlan>(planKey(student, planId), { plan, lastSaved });
+      updatePlanList(planId, (p) => ({ ...p, lastSaved }));
+    },
+  });
+}
+
+export function useCreatePlan() {
   const queryClient = useQueryClient();
   const student = useMe();
   return useMutation({
-    mutationFn: (plan: DegreePlan) => savePlan(plan),
-    onSuccess: (lastSaved, plan) => {
-      queryClient.setQueryData<LoadedPlan>(planKey(student), { plan, lastSaved });
+    mutationFn: (details: { name: string; copyFrom?: number }) => createPlan(details),
+    onSuccess: (created) => {
+      queryClient.setQueryData<PlanInfo[]>(planListKey(student), (plans) => [...(plans ?? []), created]);
     },
+  });
+}
+
+export function useRenamePlan() {
+  const updatePlanList = useUpdatePlanList();
+  return useMutation({
+    mutationFn: ({ planId, name }: { planId: number; name: string }) => renamePlan(planId, name),
+    onSuccess: (renamed) => updatePlanList(renamed.planId, () => renamed),
+  });
+}
+
+// The deleted plan's courses stay cached until the session ends: removing them while the
+// plan is still on screen would refetch it and get a 404.
+export function useDeletePlan() {
+  const updatePlanList = useUpdatePlanList();
+  return useMutation({
+    mutationFn: (planId: number) => deletePlan(planId),
+    onSuccess: (_, planId) => updatePlanList(planId, () => null),
   });
 }

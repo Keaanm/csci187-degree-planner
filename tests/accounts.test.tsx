@@ -100,6 +100,8 @@ describe('accounts', () => {
     expect(screen.getByText('ben@scu.edu')).toBeTruthy();
     expect(backend.posts).toEqual([
       { url: '/api/signup', body: { email: 'ben@scu.edu', password: 'a long password', startYear: 2025 } },
+      // A new student has no plans until the server makes one at sign-up, so the app does.
+      { url: '/api/me/plans', body: { name: 'Main plan' } },
     ]);
   });
 

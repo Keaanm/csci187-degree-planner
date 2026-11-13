@@ -8,7 +8,7 @@ import AccountMenu from '@/components/AccountMenu';
 import LoadError from '@/components/LoadError';
 import Logo from '@/components/Logo';
 import NavItem from '@/components/NavItem';
-import PlanProvider from '@/components/PlanProvider';
+import PlansProvider from '@/components/PlansProvider';
 import CoursePage from '@/pages/CoursePage';
 import CoursesPage from '@/pages/CoursesPage';
 import LogInPage from '@/pages/LogInPage';
@@ -66,7 +66,7 @@ function Planner({ student }: { student: Student }) {
   const from = (location.state as { from?: string } | null)?.from ?? '/';
   return (
     <Loading>
-      <PlanProvider>
+      <PlansProvider student={student}>
         <header className="border-b">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
             <nav className="flex items-center gap-5">
@@ -89,7 +89,7 @@ function Planner({ student }: { student: Student }) {
             <Route path="/signup" element={<Navigate to={from} replace />} />
           </Routes>
         </main>
-      </PlanProvider>
+      </PlansProvider>
     </Loading>
   );
 }

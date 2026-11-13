@@ -4,7 +4,7 @@ import type { PlanCourse } from './DegreePlan';
 import { DegreeRequirement } from './DegreeRequirement';
 
 // Routes and JSON shapes are in API.md. The session cookie is sent automatically, so the
-// plan routes always mean the logged-in student's plan.
+// plan routes always mean the logged-in student's plans.
 
 type Fetch = typeof fetch;
 
@@ -56,6 +56,18 @@ interface PlanJson {
   courses: PlanCourse[];
 }
 
+// One of the student's plans, without its courses.
+export interface PlanInfo {
+  planId: number;
+  name: string;
+  programId: number | null;
+  lastSaved: string | null;
+  shared: boolean;
+}
+
+export const FIRST_PLAN_NAME = 'Main plan';
+export const MAX_PLAN_NAME_LENGTH = 60;
+
 export interface LoadedPlan {
   plan: DegreePlan;
   lastSaved: string | null;
@@ -93,22 +105,40 @@ export async function logOut(fetchFn: Fetch = fetch): Promise<void> {
   if (!response.ok) await readJson(response);
 }
 
-// The logged-in student's plan. 404 means they have never saved one.
-// `offered` is the course list from fetchCourses.
-export async function fetchPlan(offered: readonly Course[], fetchFn: Fetch = fetch): Promise<LoadedPlan> {
-  const response = await fetchFn('/api/me/plan');
-  if (response.status === 404) return { plan: DegreePlan.empty(offered), lastSaved: null };
-  const saved = await readJson<PlanJson>(response);
+// The logged-in student's plans, oldest first. A student with no plans yet (an account
+// from before sign-up created one) gets a "Main plan", so there is always one to show.
+export async function fetchPlans(fetchFn: Fetch = fetch): Promise<PlanInfo[]> {
+  const plans = await getJson<PlanInfo[]>(fetchFn, '/api/me/plans');
+  if (plans.length > 0) return plans;
+  return [await createPlan({ name: FIRST_PLAN_NAME }, fetchFn)];
+}
+
+// With `copyFrom`, the new plan starts with that plan's saved courses.
+export async function createPlan(
+  details: { name: string; copyFrom?: number },
+  fetchFn: Fetch = fetch,
+): Promise<PlanInfo> {
+  return readJson<PlanInfo>(await postJson(fetchFn, '/api/me/plans', details));
+}
+
+export async function renamePlan(planId: number, name: string, fetchFn: Fetch = fetch): Promise<PlanInfo> {
+  return readJson<PlanInfo>(await sendJson(fetchFn, 'PATCH', `/api/me/plans/${planId}`, { name }));
+}
+
+export async function deletePlan(planId: number, fetchFn: Fetch = fetch): Promise<void> {
+  const response = await fetchFn(`/api/me/plans/${planId}`, { method: 'DELETE' });
+  if (!response.ok) await readJson(response);
+}
+
+// One of the student's plans. `offered` is the course list from fetchCourses.
+export async function fetchPlan(planId: number, offered: readonly Course[], fetchFn: Fetch = fetch): Promise<LoadedPlan> {
+  const saved = await getJson<PlanJson>(fetchFn, `/api/me/plans/${planId}`);
   return { plan: DegreePlan.fromRows(saved.courses, offered), lastSaved: saved.lastSaved };
 }
 
-// Replaces everything saved in the logged-in student's plan.
-export async function savePlan(plan: DegreePlan, fetchFn: Fetch = fetch): Promise<string> {
-  const response = await fetchFn('/api/me/plan', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ courses: plan.toRows() }),
-  });
+// Replaces everything saved in one of the student's plans.
+export async function savePlan(planId: number, plan: DegreePlan, fetchFn: Fetch = fetch): Promise<string> {
+  const response = await sendJson(fetchFn, 'PUT', `/api/me/plans/${planId}`, { courses: plan.toRows() });
   const saved = await readJson<{ planId: number; lastSaved: string }>(response);
   return saved.lastSaved;
 }
@@ -118,8 +148,12 @@ async function getJson<T>(fetchFn: Fetch, url: string): Promise<T> {
 }
 
 function postJson(fetchFn: Fetch, url: string, body: unknown): Promise<Response> {
+  return sendJson(fetchFn, 'POST', url, body);
+}
+
+function sendJson(fetchFn: Fetch, method: string, url: string, body: unknown): Promise<Response> {
   return fetchFn(url, {
-    method: 'POST',
+    method,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
