@@ -35,12 +35,22 @@ describe('API client', () => {
 
   it('loads requirements with their count', async () => {
     const { fetchFn } = fakeFetch(200, [
-      { requirementId: 7, description: 'Electives', count: 2, courses: ['CSCI 168', 'CSCI 180', 'CSCI 183'] },
+      { requirementId: 7, description: 'Electives', count: 2, programId: 2, units: null, courses: ['CSCI 168', 'CSCI 180', 'CSCI 183'] },
     ]);
     const [requirement] = await fetchRequirements(fetchFn);
     expect(requirement.description).toBe('Electives');
     expect(requirement.count).toBe(2);
     expect(requirement.isSatisfiedBy(['CSCI 168', 'CSCI 180'])).toBe(true);
+  });
+
+  it('only checks the major and the Software emphasis until a plan can choose its emphasis', async () => {
+    const { fetchFn } = fakeFetch(200, [
+      { requirementId: 1, description: 'Major', count: 1, programId: 1, units: null, courses: ['CSCI 10'] },
+      { requirementId: 8, description: 'Security', count: 1, programId: 5, units: null, courses: ['CSCI 181'] },
+      { requirementId: 14, description: 'Core: Ethics', count: 1, programId: 6, units: null, courses: [] },
+    ]);
+    const requirements = await fetchRequirements(fetchFn);
+    expect(requirements.map((r) => r.description)).toEqual(['Major']);
   });
 
   it('loads a saved plan with its completed courses and last-saved time', async () => {

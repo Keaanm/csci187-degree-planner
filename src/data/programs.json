@@ -1,0 +1,8 @@
+[
+  { "name": "Computer Science (B.S.)", "kind": "major" },
+  { "name": "Software", "kind": "emphasis" },
+  { "name": "Algorithms and Complexity", "kind": "emphasis" },
+  { "name": "Data Science", "kind": "emphasis" },
+  { "name": "Security", "kind": "emphasis" },
+  { "name": "University Core", "kind": "core" }
+]

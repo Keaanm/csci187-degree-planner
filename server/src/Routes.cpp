@@ -165,6 +165,13 @@ void registerRoutes(httplib::Server& server, Database& db) {
     sendJson(res, db.requirements());
   });
 
+  // The major, its emphases and the University Core.
+  server.Get("/api/programs", [&db](const httplib::Request& req, httplib::Response& res) {
+    int studentId;
+    if (!currentStudent(db, req, res, studentId)) return;
+    sendJson(res, db.programs());
+  });
+
   // Creates an account and logs it in.
   server.Post("/api/signup", [&db](const httplib::Request& req, httplib::Response& res) {
     try {

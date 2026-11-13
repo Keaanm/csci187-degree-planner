@@ -64,7 +64,7 @@ int main() {
     auto res = client.Get("/api/courses");
     CHECK(status(res) == 200);
     json courses = body(res);
-    CHECK(courses.size() == 33);
+    CHECK(courses.size() == 51);
     json csci10, csci61, csci62;
     for (auto& c : courses) {
       if (c["code"] == "CSCI 10") csci10 = c;
@@ -84,12 +84,25 @@ int main() {
     auto res = client.Get("/api/requirements");
     CHECK(status(res) == 200);
     json reqs = body(res);
-    CHECK(reqs.size() == 7);
+    CHECK(reqs.size() == 33);
     CHECK(reqs[0]["requirementId"] == 1);
     CHECK(reqs[0]["courses"] == json::parse(R"(["CSCI 10", "CSCI 60", "CSCI 61", "CSCI 62"])"));
     CHECK(reqs[0]["count"] == 4);
     CHECK(reqs[2]["count"] == 1);
     CHECK(reqs[6]["count"] == 2);
+    // Each requirement names its program: the major (1), Software (2), ..., the Core (6).
+    CHECK(reqs[0]["programId"] == 1);
+    CHECK(reqs[6]["programId"] == 2);
+    CHECK(reqs[0]["units"].is_null());
+    // A Core area lists no courses; it's met by one course from outside this catalog.
+    json core = reqs[13];
+    CHECK(core["description"] == "Core: Critical Thinking & Writing 1");
+    CHECK(core["programId"] == 6);
+    CHECK(core["courses"] == json::array());
+    CHECK(core["count"] == 1);
+    // A Pathway is four courses and at least 16 units.
+    CHECK(reqs.back()["count"] == 4);
+    CHECK(reqs.back()["units"] == 16);
   }
 
   // ---- Accounts ----
@@ -362,6 +375,25 @@ int main() {
     CHECK(status(bob->Put("/api/plans/1", R"({"courses": []})", "application/json")) == 404);
   }
 
+  // GET /api/programs needs a login and lists every program in programs.json, by id.
+  {
+    CHECK(status(client.Get("/api/programs")) == 401);
+    auto res = alice->Get("/api/programs");
+    CHECK(status(res) == 200);
+    // R"json(...)json" because the name has )" in it, which would end a plain R"(...)".
+    CHECK(body(res) == json::parse(R"json([
+      {"programId": 1, "name": "Computer Science (B.S.)", "kind": "major"},
+      {"programId": 2, "name": "Software", "kind": "emphasis"},
+      {"programId": 3, "name": "Algorithms and Complexity", "kind": "emphasis"},
+      {"programId": 4, "name": "Data Science", "kind": "emphasis"},
+      {"programId": 5, "name": "Security", "kind": "emphasis"},
+      {"programId": 6, "name": "University Core", "kind": "core"}
+    ])json"));
+    // Reseeding keeps the ids.
+    db.seed(DEFAULT_DATA_DIR);
+    CHECK(body(alice->Get("/api/programs")).size() == 6);
+  }
+
   // Unknown routes are a 404 with an error message.
   {
     auto res = client.Get("/api/nope");
@@ -427,6 +459,30 @@ int main() {
       migrated.savePlan(studentId, {{"CSCI 10", 0, "planned"}});
       auto plan = migrated.plan(studentId);
       CHECK(plan && (*plan)["courses"].size() == 1);
+    }
+    std::filesystem::remove(path);
+  }
+
+  // A database from before programs: degree_requirement has no program_id or units yet.
+  // They're added, and the reseed fills them in.
+  {
+    auto path = std::filesystem::temp_directory_path() / "degree_planner_no_programs_test.db";
+    std::filesystem::remove(path);
+    sqlite3* old = nullptr;
+    sqlite3_open(path.string().c_str(), &old);
+    sqlite3_exec(old, R"sql(
+      CREATE TABLE degree_requirement (requirement_id INTEGER PRIMARY KEY, description TEXT NOT NULL,
+                                       count INTEGER NOT NULL);
+      INSERT INTO degree_requirement VALUES (1, 'Lower-division computer science', 4);
+    )sql", nullptr, nullptr, nullptr);
+    sqlite3_close(old);
+    {
+      Database migrated(path.string());
+      migrated.seed(DEFAULT_DATA_DIR);
+      json reqs = migrated.requirements();
+      CHECK(reqs.size() == 33);
+      CHECK(reqs[0]["programId"] == 1);
+      CHECK(reqs.back()["units"] == 16);
     }
     std::filesystem::remove(path);
   }

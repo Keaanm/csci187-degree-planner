@@ -108,6 +108,27 @@ Database::Database(const std::string& path) {
   }
   exec("PRAGMA foreign_keys = ON");
   createTables();
+  createProgramTable();
+}
+
+// The major, its emphases and the University Core. Seeded from programs.json.
+void Database::createProgramTable() {
+  exec(R"sql(
+    CREATE TABLE IF NOT EXISTS program (
+      program_id INTEGER PRIMARY KEY,
+      name       TEXT NOT NULL,
+      kind       TEXT NOT NULL CHECK (kind IN ('major', 'emphasis', 'core'))
+    );
+  )sql");
+  // Each requirement belongs to one program. units is the minimum units, for the requirements
+  // the bulletin also measures in units (a Pathway), and NULL otherwise. Added with ALTER
+  // TABLE so a database from before programs keeps working; seed() fills them in.
+  if (!hasColumn("degree_requirement", "program_id")) {
+    exec("ALTER TABLE degree_requirement ADD COLUMN program_id INTEGER REFERENCES program(program_id)");
+  }
+  if (!hasColumn("degree_requirement", "units")) {
+    exec("ALTER TABLE degree_requirement ADD COLUMN units INTEGER");
+  }
 }
 
 Database::~Database() { sqlite3_close(db_); }
@@ -197,6 +218,7 @@ void Database::createTables() {
 void Database::seed(const std::string& dataDir) {
   json courseData = readJsonFile(dataDir + "/courses.json");
   json requirementData = readJsonFile(dataDir + "/requirements.json");
+  json programData = readJsonFile(dataDir + "/programs.json");
 
   std::lock_guard<std::mutex> lock(mutex_);
   exec("BEGIN");
@@ -255,18 +277,49 @@ void Database::seed(const std::string& dataDir) {
       }
     }
 
-    // Requirement ids are their position in requirements.json, starting at 1.
+    // Requirements are deleted first because they point at programs.
     exec("DELETE FROM course_requirement");
     exec("DELETE FROM degree_requirement");
-    Statement requirement(db_,
-        "INSERT INTO degree_requirement (requirement_id, description, count) VALUES (?, ?, ?)");
+
+    // Program ids are their position in programs.json, starting at 1. Upserted by id, not
+    // deleted and reinserted, so anything that points at a program keeps pointing at it.
+    Statement program(db_, R"sql(
+      INSERT INTO program (program_id, name, kind) VALUES (?, ?, ?)
+      ON CONFLICT(program_id) DO UPDATE SET name = excluded.name, kind = excluded.kind)sql");
+    std::map<std::string, int> programIds;  // name -> program_id
+    int programId = 1;
+    for (const auto& p : programData) {
+      std::string kind = p.at("kind");
+      if (kind != "major" && kind != "emphasis" && kind != "core") {
+        throw std::runtime_error("programs.json: \"" + kind + "\" isn't major, emphasis or core");
+      }
+      std::string name = p.at("name");
+      programIds[name] = programId;
+      program.bind(1, programId++).bind(2, name).bind(3, kind);
+      program.run();
+    }
+    Statement dropPrograms(db_, "DELETE FROM program WHERE program_id >= ?");
+    dropPrograms.bind(1, programId);
+    dropPrograms.run();
+
+    // Requirement ids are their position in requirements.json, starting at 1.
+    Statement requirement(db_, R"sql(
+      INSERT INTO degree_requirement (requirement_id, description, count, program_id, units)
+      VALUES (?, ?, ?, ?, ?))sql");
     Statement satisfies(db_,
         "INSERT OR IGNORE INTO course_requirement (course_id, requirement_id, position) VALUES (?, ?, ?)");
     int requirementId = 1;
     for (const auto& r : requirementData) {
       const auto& courses = r.at("courses");
+      std::string description = r.at("description");
       int count = r.contains("count") ? r.at("count").get<int>() : static_cast<int>(courses.size());
-      requirement.bind(1, requirementId).bind(2, r.at("description").get<std::string>()).bind(3, count);
+      auto owner = programIds.find(r.at("program").get<std::string>());
+      if (owner == programIds.end()) {
+        throw std::runtime_error("requirements.json: \"" + description + "\" names the program \"" +
+                                 r.at("program").get<std::string>() + "\", which isn't in programs.json");
+      }
+      requirement.bind(1, requirementId).bind(2, description).bind(3, count).bind(4, owner->second);
+      if (r.contains("units")) requirement.bind(5, r.at("units").get<int>());  // left unbound: NULL
       requirement.run();
       int position = 0;
       for (const auto& code : courses) {
@@ -317,7 +370,7 @@ json Database::requirements() {
   std::lock_guard<std::mutex> lock(mutex_);
   json result = json::array();
   Statement all(db_, R"sql(
-    SELECT r.requirement_id, r.description, r.count, c.code
+    SELECT r.requirement_id, r.description, r.count, r.program_id, r.units, c.code
     FROM degree_requirement r
     LEFT JOIN course_requirement cr ON cr.requirement_id = r.requirement_id
     LEFT JOIN course c ON c.course_id = cr.course_id
@@ -329,9 +382,21 @@ json Database::requirements() {
       result.push_back({{"requirementId", current},
                         {"description", all.textAt(1)},
                         {"count", all.intAt(2)},
+                        {"programId", all.intAt(3)},
+                        {"units", all.isNull(4) ? json(nullptr) : json(all.intAt(4))},
                         {"courses", json::array()}});
     }
-    if (!all.isNull(3)) result.back()["courses"].push_back(all.textAt(3));
+    if (!all.isNull(5)) result.back()["courses"].push_back(all.textAt(5));
+  }
+  return result;
+}
+
+json Database::programs() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  json result = json::array();
+  Statement all(db_, "SELECT program_id, name, kind FROM program ORDER BY program_id");
+  while (all.step()) {
+    result.push_back({{"programId", all.intAt(0)}, {"name", all.textAt(1)}, {"kind", all.textAt(2)}});
   }
   return result;
 }

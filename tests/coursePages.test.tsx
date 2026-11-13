@@ -51,9 +51,9 @@ afterEach(() => {
 describe('course lookup page', () => {
   it('lists every offered course and filters as the student types', async () => {
     renderAt('/courses');
-    expect(await screen.findByText('33 of 33 courses')).toBeTruthy();
+    expect(await screen.findByText('51 of 51 courses')).toBeTruthy();
     fireEvent.change(search(), { target: { value: 'data structures' } });
-    expect(screen.getByText('3 of 33 courses')).toBeTruthy();
+    expect(screen.getByText('3 of 51 courses')).toBeTruthy();
     expect(card('CSCI 61')).toBeTruthy();
   });
 
@@ -72,7 +72,7 @@ describe('course lookup page', () => {
     fireEvent.click(card('CSCI 61'));
     fireEvent.click(await screen.findByRole('link', { name: 'All courses' }));
     expect(search().value).toBe('data structures');
-    expect(await screen.findByText('3 of 33 courses')).toBeTruthy();
+    expect(await screen.findByText('3 of 51 courses')).toBeTruthy();
   });
 });
 
