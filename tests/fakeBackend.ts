@@ -14,27 +14,67 @@ export interface SavedPlan {
 export const ACCOUNT = { email: 'ana@scu.edu', startYear: 2025 };
 export const PASSWORD = 'correct horse';
 
+export interface FakePlan {
+  planId: number;
+  name: string;
+  programId: number | null;
+  lastSaved: string | null;
+  courses: SavedPlan['courses'];
+}
+
+const SAVED_AT = '2026-11-02T20:00:00.000Z';
+const CREATED_AT = '2026-11-12T18:00:00.000Z';
+
 // A fake backend. `saved` is the plan it starts with, `saveError` makes PUT fail, and
 // `saveDelayMs` makes each PUT take that long. It starts logged in as ACCOUNT unless
 // `loggedIn` is false.
 //
-// `saved` belongs to ACCOUNT; any other student starts with no saved plan.
+// ACCOUNT starts with one plan, "Main plan" (plan 1), holding `saved` (empty and never
+// saved without it). `extraPlans` adds more plans after it. Any other student starts with
+// no plans, like an account from before sign-up made one.
 //
 // It returns the PUT bodies, with extras: `mostAtOnce` is the most PUTs in flight at the
-// same time, `posts` records each POST as { url, body }, and `endSession()` ends the
-// session on the server, as if it expired. Setting `meStillLoggedIn` makes /api/me keep
+// same time, `posts` records each POST as { url, body }, `requests` records every request
+// as "METHOD url", `plans()` is the logged-in student's plans now, and `endSession()` ends
+// the session on the server, as if it expired. Setting `meStillLoggedIn` makes /api/me keep
 // answering as ACCOUNT after that, as when a session ends between two requests.
-export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true }: {
+export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true, extraPlans = [] }: {
   saved?: SavedPlan;
   saveError?: string;
   saveDelayMs?: number;
   loggedIn?: boolean;
+  extraPlans?: { name: string; courses?: SavedPlan['courses'] }[];
 } = {}) {
   let me: typeof ACCOUNT | null = loggedIn ? ACCOUNT : null;
   let inFlight = 0;
+  let nextPlanId = 1;
+  const newPlan = (name: string, courses: SavedPlan['courses'] = [], lastSaved: string | null = CREATED_AT): FakePlan => ({
+    planId: nextPlanId++,
+    name,
+    programId: null,
+    lastSaved,
+    courses,
+  });
+  const plansByEmail = new Map<string, FakePlan[]>([
+    [
+      ACCOUNT.email,
+      [
+        newPlan('Main plan', saved?.courses, saved?.lastSaved ?? null),
+        ...extraPlans.map((p) => newPlan(p.name, p.courses, SAVED_AT)),
+      ],
+    ],
+  ]);
+  const myPlans = () => {
+    if (!me) return [];
+    if (!plansByEmail.has(me.email)) plansByEmail.set(me.email, []);
+    return plansByEmail.get(me.email) as FakePlan[];
+  };
+  const info = ({ courses: _courses, ...p }: FakePlan) => ({ ...p, shared: false });
   const puts = Object.assign([] as unknown[], {
     mostAtOnce: 0,
     posts: [] as { url: string; body: unknown }[],
+    requests: [] as string[],
+    plans: () => myPlans(),
     endSession: () => {
       me = null;
     },
@@ -46,6 +86,7 @@ export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true
   vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
     if (init?.method === 'POST') puts.posts.push({ url, body });
+    puts.requests.push(`${init?.method ?? 'GET'} ${url}`);
 
     if (url === '/api/courses') return json(200, courseData);
     if (url === '/api/requirements') {
@@ -79,16 +120,49 @@ export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true
       me = null;
       return new Response(null, { status: 204 });
     }
-    if (url !== '/api/me/plan') return json(404, { error: 'Not found' });
+    if (!url.startsWith('/api/me/plans')) return json(404, { error: 'Not found' });
     if (!me) return loggedOut();
+    const plans = myPlans();
+    const badName = (name: unknown) =>
+      typeof name !== 'string' || !name.trim() || [...name.trim()].length > 60 ? 'Plan names are 1 to 60 characters' : null;
+
+    if (url === '/api/me/plans') {
+      if (init?.method !== 'POST') return json(200, plans.map(info));
+      const problem = badName(body.name);
+      if (problem) return json(400, { error: problem });
+      const from = body.copyFrom === undefined ? undefined : plans.find((p) => p.planId === body.copyFrom);
+      if (body.copyFrom !== undefined && !from) return json(404, { error: 'Plan not found' });
+      const created = newPlan(body.name.trim(), from ? [...from.courses] : []);
+      plans.push(created);
+      return json(201, info(created));
+    }
+
+    const plan = plans.find((p) => url === `/api/me/plans/${p.planId}`);
+    if (!plan) return json(404, { error: 'Plan not found' });
+    if (init?.method === 'PATCH') {
+      if (body.name !== undefined) {
+        const problem = badName(body.name);
+        if (problem) return json(400, { error: problem });
+        plan.name = body.name.trim();
+      }
+      return json(200, info(plan));
+    }
+    if (init?.method === 'DELETE') {
+      if (plans.length === 1) return json(400, { error: 'You need at least one plan' });
+      plans.splice(plans.indexOf(plan), 1);
+      return new Response(null, { status: 204 });
+    }
     if (init?.method === 'PUT') {
       puts.push(body);
       puts.mostAtOnce = Math.max(puts.mostAtOnce, ++inFlight);
       await new Promise((resolve) => setTimeout(resolve, saveDelayMs));
       inFlight--;
-      return saveError ? json(400, { error: saveError }) : json(200, { planId: 1, lastSaved: '2026-11-02T20:00:00.000Z' });
+      if (saveError) return json(400, { error: saveError });
+      plan.courses = body.courses;
+      plan.lastSaved = SAVED_AT;
+      return json(200, { planId: plan.planId, lastSaved: SAVED_AT });
     }
-    return saved && me.email === ACCOUNT.email ? json(200, { planId: 1, ...saved }) : json(404, { error: 'Plan not found' });
+    return json(200, { planId: plan.planId, lastSaved: plan.lastSaved, courses: plan.courses });
   });
   return puts;
 }
