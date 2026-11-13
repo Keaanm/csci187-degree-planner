@@ -46,7 +46,7 @@ struct SavedPlan {
 struct PlanRow {
   std::string code;
   int quarter;
-  std::string status;  // "planned" or "completed"
+  std::string status;  // "planned", "completed" or "failed"
 };
 
 // Owns the SQLite connection. Every public method locks a mutex, because
@@ -101,6 +101,7 @@ class Database {
  private:
   void exec(const std::string& sql);
   void createTables();
+  void createPlanCourse(const std::string& table);
   bool hasColumn(const std::string& table, const std::string& column);
   // Callers must hold mutex_.
   std::optional<int> firstPlanId(int studentId);
