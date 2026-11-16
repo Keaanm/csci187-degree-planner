@@ -26,11 +26,18 @@ function PlanProbe() {
   );
 }
 
+// Counts how many times the page fell back to "Loading…".
+let loadingShown = 0;
+function Loading() {
+  loadingShown++;
+  return <p>Loading…</p>;
+}
+
 function renderSwitcher() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <Suspense fallback={<p>Loading…</p>}>
+      <Suspense fallback={<Loading />}>
         <PlansProvider student={ACCOUNT} autosaveDelay={DELAY}>
           <PlanSwitcher />
           <SaveStatus />
@@ -160,6 +167,38 @@ describe('making plans', () => {
     expect(backend.posts.at(-1)).toEqual({ url: '/api/me/plans', body: { name: 'Copy', copyFrom: 1 } });
   });
 
+  it('waits for unsaved changes to save, then copies the plan with them', async () => {
+    const backend = fakeBackend({ saveDelayMs: 200 });
+    renderSwitcher();
+    await courses('no courses');
+    click('Add CSCI 60');
+    click('New plan');
+    const form = await dialog();
+    fireEvent.change(within(form).getByLabelText('Name'), { target: { value: 'Copy' } });
+    fireEvent.click(within(form).getByLabelText('A copy of “Main plan”'));
+    click('Make plan', form);
+    expect(await screen.findByText('Saving your changes first…')).toBeTruthy();
+    await waitFor(async () => expect((await picker()).selectedOptions[0].text).toBe('Copy'), { timeout: 3000 });
+    expect(await courses('CSCI 60')).toBeTruthy();
+    expect(backend.plans()[1].courses).toEqual([{ code: 'CSCI 60', quarter: 1, status: 'planned' }]);
+  });
+
+  it("copies the last saved version when the changes couldn't be saved, and says so", async () => {
+    const backend = fakeBackend({ saveError: 'The server is down', saved: { lastSaved: '2026-11-01T18:00:00.000Z', courses: [CSCI_10] } });
+    renderSwitcher();
+    await courses('CSCI 10');
+    click('Add CSCI 60');
+    await screen.findByText(/Couldn't save/, {}, { timeout: 2000 });
+    click('New plan');
+    const form = await dialog();
+    fireEvent.change(within(form).getByLabelText('Name'), { target: { value: 'Copy' } });
+    fireEvent.click(within(form).getByLabelText('A copy of “Main plan”'));
+    expect(within(form).getByText(/the copy will have the last saved version/)).toBeTruthy();
+    click('Make plan', form);
+    await waitFor(() => expect(backend.plans()).toHaveLength(2));
+    expect(backend.plans()[1].courses).toEqual([CSCI_10]);
+  });
+
   it('needs a name', async () => {
     const backend = fakeBackend();
     renderSwitcher();
@@ -192,8 +231,8 @@ describe('renaming and deleting plans', () => {
 
   it('asks before deleting, then opens the oldest plan left', async () => {
     const backend = fakeBackend({ saved: { lastSaved: '2026-11-01T18:00:00.000Z', courses: [CSCI_10] }, extraPlans: [{ name: 'Abroad', courses: [MATH_11] }] });
+    localStorage.setItem(`degreePlanner.openPlan.${ACCOUNT.email}`, '2');  // Main plan is never loaded
     renderSwitcher();
-    await openPlan('Abroad');
     await courses('MATH 11');
     click('Delete');
     const confirm = await dialog();
@@ -201,8 +240,10 @@ describe('renaming and deleting plans', () => {
     click('Keep it', confirm);
     expect(backend.plans()).toHaveLength(2);
     click('Delete');
+    loadingShown = 0;
     click('Delete plan', await dialog());
     expect(await courses('CSCI 10')).toBeTruthy();
+    expect(loadingShown).toBe(0);  // straight from one plan to the other
     expect(await optionNames()).toEqual(['Main plan']);
     expect(backend.plans().map((p) => p.name)).toEqual(['Main plan']);
   });

@@ -26,6 +26,7 @@ import {
 } from './api';
 import type { LoadedPlan, PlanInfo, SignUp, Student } from './api';
 import { Catalog } from './Catalog';
+import type { Course } from './Course';
 import type { DegreePlan } from './DegreePlan';
 
 // Loading and errors are handled by <Suspense> and <ErrorBoundary> in App.
@@ -41,6 +42,8 @@ const requirementsQuery = queryOptions({ queryKey: ['requirements'], queryFn: ()
 // Every key starts with 'plan', so ending a session removes them all.
 const planListKey = (student: Student | null) => ['plan', student?.email ?? null, 'list'];
 const planKey = (student: Student | null, planId: number) => ['plan', student?.email ?? null, planId];
+const planQuery = (student: Student | null, planId: number, courses: readonly Course[]) =>
+  queryOptions({ queryKey: planKey(student, planId), queryFn: () => fetchPlan(planId, courses) });
 
 // A 401 from any route means the session ended (it expired, or the student logged out in
 // another tab), so the app goes back to the login page.
@@ -148,7 +151,7 @@ function useUpdatePlanList() {
 export function useSavedPlan(planId: number) {
   const courses = useCourses();
   const student = useMe();
-  return useSuspenseQuery({ queryKey: planKey(student, planId), queryFn: () => fetchPlan(planId, courses) }).data;
+  return useSuspenseQuery(planQuery(student, planId, courses)).data;
 }
 
 export function useSavePlan(planId: number) {
@@ -185,10 +188,18 @@ export function useRenamePlan() {
 
 // The deleted plan's courses stay cached until the session ends: removing them while the
 // plan is still on screen would refetch it and get a 404.
+// Deletes a plan and opens `next` instead. `next` is loaded before the plan is deleted, so
+// the page goes straight from one plan to the other instead of showing "Loading…".
 export function useDeletePlan() {
+  const queryClient = useQueryClient();
+  const student = useMe();
+  const courses = useCourses();
   const updatePlanList = useUpdatePlanList();
   return useMutation({
-    mutationFn: (planId: number) => deletePlan(planId),
-    onSuccess: (_, planId) => updatePlanList(planId, () => null),
+    mutationFn: async ({ planId, next }: { planId: number; next: number }) => {
+      await queryClient.ensureQueryData(planQuery(student, next, courses));
+      await deletePlan(planId);
+    },
+    onSuccess: (_, { planId }) => updatePlanList(planId, () => null),
   });
 }

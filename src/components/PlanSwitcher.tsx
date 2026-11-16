@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { MAX_PLAN_NAME_LENGTH } from '@/api';
 import Field from '@/components/Field';
@@ -134,23 +134,39 @@ function NewPlanDialog({ copyable, onClose, onCreated }: {
   const [name, setName] = useState('');
   const [copy, setCopy] = useState(false);
   const [touched, setTouched] = useState(false);
+  // A copy is made from the saved plan, so with unsaved changes it waits for them to save
+  // and is then made by itself.
+  const [waitingToCopy, setWaitingToCopy] = useState(false);
   const problem = nameProblem(name);
-  // A copy is made from the saved plan, so it waits for unsaved changes.
-  const waitingToCopy = copy && !saved;
+  const { mutate } = create;
 
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    setTouched(true);
-    if (problem || waitingToCopy) return;
-    create.mutate(
-      { name: name.trim(), copyFrom: copy ? planId : undefined },
-      {
+  const make = useCallback(
+    (details: { name: string; copyFrom?: number }) =>
+      mutate(details, {
         onSuccess: (created) => {
           onClose();
           onCreated(created.planId);
         },
-      },
-    );
+      }),
+    [mutate, onClose, onCreated],
+  );
+
+  useEffect(() => {
+    if (!waitingToCopy) return;
+    if (saved) {
+      setWaitingToCopy(false);
+      make({ name: name.trim(), copyFrom: planId });
+    } else if (saveError) {
+      setWaitingToCopy(false);  // the student decides: fix the save, or copy without them
+    }
+  }, [waitingToCopy, saved, saveError, make, name, planId]);
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    setTouched(true);
+    if (problem || create.isPending) return;
+    if (copy && !saved && !saveError) return setWaitingToCopy(true);
+    make({ name: name.trim(), copyFrom: copy ? planId : undefined });
   };
 
   return (
@@ -189,7 +205,12 @@ function NewPlanDialog({ copyable, onClose, onCreated }: {
           )}
           {waitingToCopy && (
             <p className="text-sm text-muted-foreground" role="status">
-              {saveError ? `“${copyable}” has changes that couldn't be saved. Save them first to copy them.` : 'Saving your changes first…'}
+              Saving your changes first…
+            </p>
+          )}
+          {copy && !saved && saveError && (
+            <p className="text-sm text-destructive" role="alert">
+              Your latest changes to “{copyable}” couldn't be saved, so the copy will have the last saved version.
             </p>
           )}
           {create.isError && (
@@ -267,7 +288,10 @@ function RenameDialog({ planId, name: oldName, onClose }: { planId: number; name
 }
 
 function DeleteDialog({ planId, name, onClose }: { planId: number; name: string; onClose: () => void }) {
+  const { plans, selectPlan } = usePlans();
   const remove = useDeletePlan();
+  // The oldest plan left opens instead. Delete is turned off for the only plan.
+  const next = plans.find((p) => p.planId !== planId)?.planId;
   return (
     <Dialog open onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent>
@@ -286,7 +310,10 @@ function DeleteDialog({ planId, name, onClose }: { planId: number; name: string;
           <Button variant="outline" onClick={onClose}>
             Keep it
           </Button>
-          <Button variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate(planId, { onSuccess: onClose })}>
+          <Button variant="destructive" disabled={remove.isPending} onClick={() =>
+              next !== undefined &&
+              remove.mutate({ planId, next }, { onSuccess: () => { onClose(); selectPlan(next); } })
+            }>
             Delete plan
           </Button>
         </DialogFooter>
