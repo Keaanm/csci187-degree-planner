@@ -45,10 +45,11 @@ interface RequirementJson {
   courses: string[];
 }
 
-// Until a plan can choose its emphasis, the planner checks the major's requirements and the
-// Software emphasis's (program ids 1 and 2 in programs.json). The other emphases and the
-// University Core are in the API but not checked yet.
-export const CHECKED_PROGRAM_IDS = [1, 2];
+export interface Program {
+  programId: number;
+  name: string;
+  kind: 'major' | 'emphasis' | 'core';
+}
 
 interface PlanJson {
   planId: number;
@@ -78,11 +79,16 @@ export async function fetchCourses(fetchFn: Fetch = fetch): Promise<Course[]> {
   return courses.map((c) => new Course(c.code, c.title, c.description, c.units, c.prerequisites));
 }
 
+// Every program's requirements. Which ones a plan checks depends on its emphasis
+// (usePlanRequirements in queries.ts).
 export async function fetchRequirements(fetchFn: Fetch = fetch): Promise<DegreeRequirement[]> {
   const requirements = await getJson<RequirementJson[]>(fetchFn, '/api/requirements');
-  return requirements
-    .filter((r) => CHECKED_PROGRAM_IDS.includes(r.programId))
-    .map((r) => new DegreeRequirement(r.description, r.courses, r.count));
+  return requirements.map((r) => new DegreeRequirement(r.description, r.courses, r.count, r.programId));
+}
+
+// The major, its emphases and the University Core.
+export async function fetchPrograms(fetchFn: Fetch = fetch): Promise<Program[]> {
+  return getJson<Program[]>(fetchFn, '/api/programs');
 }
 
 // The logged-in student, or null when nobody is logged in.
@@ -115,14 +121,19 @@ export async function fetchPlans(fetchFn: Fetch = fetch): Promise<PlanInfo[]> {
 
 // With `copyFrom`, the new plan starts with that plan's saved courses.
 export async function createPlan(
-  details: { name: string; copyFrom?: number },
+  details: { name: string; programId?: number | null; copyFrom?: number },
   fetchFn: Fetch = fetch,
 ): Promise<PlanInfo> {
   return readJson<PlanInfo>(await postJson(fetchFn, '/api/me/plans', details));
 }
 
-export async function renamePlan(planId: number, name: string, fetchFn: Fetch = fetch): Promise<PlanInfo> {
-  return readJson<PlanInfo>(await sendJson(fetchFn, 'PATCH', `/api/me/plans/${planId}`, { name }));
+// Renames a plan or changes its emphasis (null for none). Fields left out don't change.
+export async function updatePlan(
+  planId: number,
+  changes: { name?: string; programId?: number | null },
+  fetchFn: Fetch = fetch,
+): Promise<PlanInfo> {
+  return readJson<PlanInfo>(await sendJson(fetchFn, 'PATCH', `/api/me/plans/${planId}`, changes));
 }
 
 export async function deletePlan(planId: number, fetchFn: Fetch = fetch): Promise<void> {

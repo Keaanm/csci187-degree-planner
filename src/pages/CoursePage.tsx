@@ -76,7 +76,7 @@ export default function CoursePage() {
           </CardHeader>
           <CardContent className="text-sm">
             {satisfies.length === 0 ? (
-              <p className="text-muted-foreground">No requirements in the Software emphasis</p>
+              <p className="text-muted-foreground">Not required by the major or this plan's emphasis</p>
             ) : (
               <ul className="list-disc space-y-1 pl-5">
                 {satisfies.map((r) => (

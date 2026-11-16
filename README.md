@@ -2,7 +2,7 @@
 
 CSCI 187 Group 6: Darren Hu, Henry Packer, Keaan Mirchandani, William Tran-Nguyen
 
-Plan your 4-year schedule and track your progress toward the SCU Computer Science degree (Software emphasis). The app replaces PDF requirement sheets and hand-made spreadsheets: it checks prerequisites and checks off requirements for you.
+Plan your 4-year schedule and track your progress toward the SCU Computer Science degree, with any of its four emphases. The app replaces PDF requirement sheets and hand-made spreadsheets: it checks prerequisites and checks off requirements for you.
 
 ## Quick start
 
@@ -59,7 +59,7 @@ To start over with no accounts or plans, stop the server and delete `server/degr
 
 ## What the app covers so far
 
-- The B.S. in Computer Science with the Software emphasis. Our team preloads the courses and requirements.
+- The B.S. in Computer Science with the Software, Algorithms and Complexity, Data Science or Security emphasis, chosen per plan. Our team preloads the courses and requirements. The University Core's areas are loaded but not checked until other credit is built.
 - Student accounts. A student signs up with their email, a password and the fall they started at SCU, and their plans are saved to their account in the backend's SQLite database.
 - Several plans per student: make, copy, rename, delete and switch between them, for example to try a "what if".
 

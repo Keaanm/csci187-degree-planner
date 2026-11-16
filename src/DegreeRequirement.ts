@@ -1,14 +1,17 @@
 // A degree requirement, satisfied when enough of the courses it lists have been taken
 // or planned. By default every listed course is needed; `count` allows "choose N of these".
+// `programId` is the program it belongs to (the major or an emphasis), when known.
 export class DegreeRequirement {
   readonly description: string;
   readonly courses: string[];
   readonly count: number;
+  readonly programId: number | null;
 
-  constructor(description: string, courses: string[], count: number = courses.length) {
+  constructor(description: string, courses: string[], count: number = courses.length, programId: number | null = null) {
     this.description = description;
     this.courses = courses;
     this.count = count;
+    this.programId = programId;
   }
 
   isSatisfiedBy(codes: Iterable<string>): boolean {

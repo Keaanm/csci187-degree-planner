@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { MAX_PLAN_NAME_LENGTH } from '@/api';
+import type { PlanInfo } from '@/api';
 import Field from '@/components/Field';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,7 +15,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { usePlan } from '@/PlanContext';
 import { usePlans } from '@/PlansContext';
-import { useCreatePlan, useDeletePlan, useRenamePlan } from '@/queries';
+import { useCreatePlan, useDeletePlan, useUpdatePlan } from '@/queries';
 
 type OpenDialog = 'new' | 'rename' | 'delete' | null;
 
@@ -80,7 +81,7 @@ export default function PlanSwitcher() {
         </span>
       )}
 
-      {dialog === 'new' && <NewPlanDialog copyable={current.name} onClose={() => setDialog(null)} onCreated={open} />}
+      {dialog === 'new' && <NewPlanDialog copyable={current} onClose={() => setDialog(null)} onCreated={open} />}
       {dialog === 'rename' && <RenameDialog planId={planId} name={current.name} onClose={() => setDialog(null)} />}
       {dialog === 'delete' && <DeleteDialog planId={planId} name={current.name} onClose={() => setDialog(null)} />}
 
@@ -125,7 +126,7 @@ function nameProblem(name: string): string | null {
 }
 
 function NewPlanDialog({ copyable, onClose, onCreated }: {
-  copyable: string;
+  copyable: PlanInfo;
   onClose: () => void;
   onCreated: (planId: number) => void;
 }) {
@@ -142,7 +143,7 @@ function NewPlanDialog({ copyable, onClose, onCreated }: {
   const { mutate } = create;
 
   const make = useCallback(
-    (details: { name: string; copyFrom?: number }) =>
+    (details: { name: string; programId?: number | null; copyFrom?: number }) =>
       mutate(details, {
         onSuccess: (created) => {
           onClose();
@@ -156,18 +157,19 @@ function NewPlanDialog({ copyable, onClose, onCreated }: {
     if (!waitingToCopy) return;
     if (saved) {
       setWaitingToCopy(false);
-      make({ name: name.trim(), copyFrom: planId });
+      make({ name: name.trim(), programId: copyable.programId, copyFrom: planId });
     } else if (saveError) {
       setWaitingToCopy(false);  // the student decides: fix the save, or copy without them
     }
-  }, [waitingToCopy, saved, saveError, make, name, planId]);
+  }, [waitingToCopy, saved, saveError, make, name, planId, copyable.programId]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setTouched(true);
     if (problem || create.isPending) return;
     if (copy && !saved && !saveError) return setWaitingToCopy(true);
-    make({ name: name.trim(), copyFrom: copy ? planId : undefined });
+    // The new plan starts with the open plan's emphasis; the student can change it.
+    make({ name: name.trim(), programId: copyable.programId, copyFrom: copy ? planId : undefined });
   };
 
   return (
@@ -195,7 +197,7 @@ function NewPlanDialog({ copyable, onClose, onCreated }: {
             </label>
             <label className="flex items-center gap-2">
               <input type="radio" name="start" checked={copy} onChange={() => setCopy(true)} />
-              <span className="min-w-0 truncate">A copy of “{copyable}”</span>
+              <span className="min-w-0 truncate">A copy of “{copyable.name}”</span>
             </label>
           </fieldset>
           {touched && problem && (
@@ -210,7 +212,7 @@ function NewPlanDialog({ copyable, onClose, onCreated }: {
           )}
           {copy && !saved && saveError && (
             <p className="text-sm text-destructive" role="alert">
-              Your latest changes to “{copyable}” couldn't be saved, so the copy will have the last saved version.
+              Your latest changes to “{copyable.name}” couldn't be saved, so the copy will have the last saved version.
             </p>
           )}
           {create.isError && (
@@ -233,7 +235,7 @@ function NewPlanDialog({ copyable, onClose, onCreated }: {
 }
 
 function RenameDialog({ planId, name: oldName, onClose }: { planId: number; name: string; onClose: () => void }) {
-  const rename = useRenamePlan();
+  const rename = useUpdatePlan();
   const [name, setName] = useState(oldName);
   const [touched, setTouched] = useState(false);
   const problem = nameProblem(name);

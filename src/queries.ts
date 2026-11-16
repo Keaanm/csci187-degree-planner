@@ -17,10 +17,11 @@ import {
   fetchMe,
   fetchPlan,
   fetchPlans,
+  fetchPrograms,
   fetchRequirements,
   logIn,
   logOut,
-  renamePlan,
+  updatePlan,
   savePlan,
   signUp,
 } from './api';
@@ -28,6 +29,7 @@ import type { LoadedPlan, PlanInfo, SignUp, Student } from './api';
 import { Catalog } from './Catalog';
 import type { Course } from './Course';
 import type { DegreePlan } from './DegreePlan';
+import { usePlans } from './PlansContext';
 
 // Loading and errors are handled by <Suspense> and <ErrorBoundary> in App.
 
@@ -38,6 +40,7 @@ const sessionEndKey = ['sessionEnd'];
 export type SessionEnd = 'loggedOut' | 'expired' | null;
 const coursesQuery = queryOptions({ queryKey: ['courses'], queryFn: () => fetchCourses() });
 const requirementsQuery = queryOptions({ queryKey: ['requirements'], queryFn: () => fetchRequirements() });
+const programsQuery = queryOptions({ queryKey: ['programs'], queryFn: () => fetchPrograms() });
 // Keyed by student, so logging in as someone else never shows the last student's plans.
 // Every key starts with 'plan', so ending a session removes them all.
 const planListKey = (student: Student | null) => ['plan', student?.email ?? null, 'list'];
@@ -126,13 +129,27 @@ export function useCourses() {
   return useSuspenseQuery(coursesQuery).data;
 }
 
-export function useRequirements() {
-  return useSuspenseQuery(requirementsQuery).data;
+export function usePrograms() {
+  return useSuspenseQuery(programsQuery).data;
+}
+
+// The requirements the open plan checks: the major's, and its emphasis's once one is
+// chosen. The University Core isn't checked until other credit can meet it.
+export function usePlanRequirements() {
+  const all = useSuspenseQuery(requirementsQuery).data;
+  const programs = usePrograms();
+  const { plans, planId } = usePlans();
+  const emphasis = plans.find((p) => p.planId === planId)?.programId ?? null;
+  return useMemo(() => {
+    const checked = new Set(programs.filter((p) => p.kind === 'major').map((p) => p.programId));
+    if (emphasis !== null) checked.add(emphasis);
+    return all.filter((r) => r.programId !== null && checked.has(r.programId));
+  }, [all, programs, emphasis]);
 }
 
 export function useCatalog() {
   const courses = useCourses();
-  const requirements = useRequirements();
+  const requirements = usePlanRequirements();
   return useMemo(() => new Catalog(courses, requirements), [courses, requirements]);
 }
 
@@ -183,7 +200,7 @@ export function useCreatePlan() {
   const queryClient = useQueryClient();
   const student = useMe();
   return useMutation({
-    mutationFn: (details: { name: string; copyFrom?: number }) => createPlan(details),
+    mutationFn: (details: { name: string; programId?: number | null; copyFrom?: number }) => createPlan(details),
     onSuccess: (created) => {
       // The server can give a new plan the id of a plan deleted earlier, whose courses are
       // still cached. Dropping them makes the new plan load its own (#22).
@@ -193,11 +210,13 @@ export function useCreatePlan() {
   });
 }
 
-export function useRenamePlan() {
+// Renames a plan or changes its emphasis.
+export function useUpdatePlan() {
   const updatePlanList = useUpdatePlanList();
   return useMutation({
-    mutationFn: ({ planId, name }: { planId: number; name: string }) => renamePlan(planId, name),
-    onSuccess: (renamed) => updatePlanList(renamed.planId, () => renamed),
+    mutationFn: ({ planId, ...changes }: { planId: number; name?: string; programId?: number | null }) =>
+      updatePlan(planId, changes),
+    onSuccess: (updated) => updatePlanList(updated.planId, () => updated),
   });
 }
 

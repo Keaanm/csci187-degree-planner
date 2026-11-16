@@ -1,9 +1,9 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { usePlan } from '@/PlanContext';
-import { useRequirements } from '@/queries';
+import { usePlanRequirements } from '@/queries';
 
 export default function PlanSummary() {
-  const requirements = useRequirements();
+  const requirements = usePlanRequirements();
   const { plan } = usePlan();
   const units = plan.requirementUnits(requirements);
   const unplanned = units.needed - units.completed - units.planned;

@@ -151,7 +151,7 @@ describe('making plans', () => {
     expect(await courses('no courses')).toBeTruthy();
     expect(await optionNames()).toEqual(['Main plan', 'What if I study abroad']);
     expect((await picker()).selectedOptions[0].text).toBe('What if I study abroad');
-    expect(backend.posts.at(-1)).toEqual({ url: '/api/me/plans', body: { name: 'What if I study abroad' } });
+    expect(backend.posts.at(-1)).toEqual({ url: '/api/me/plans', body: { name: 'What if I study abroad', programId: 2 } });
   });
 
   it('copies the open plan', async () => {
@@ -165,7 +165,7 @@ describe('making plans', () => {
     click('Make plan', form);
     await waitFor(async () => expect((await picker()).selectedOptions[0].text).toBe('Copy'));
     expect(await courses('CSCI 10')).toBeTruthy();
-    expect(backend.posts.at(-1)).toEqual({ url: '/api/me/plans', body: { name: 'Copy', copyFrom: 1 } });
+    expect(backend.posts.at(-1)).toEqual({ url: '/api/me/plans', body: { name: 'Copy', programId: 2, copyFrom: 1 } });
   });
 
   it('waits for unsaved changes to save, then copies the plan with them', async () => {

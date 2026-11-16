@@ -49,7 +49,7 @@ Every degree requirement, for every program. `count` is how many of `courses` ar
 ]
 ```
 
-University Core requirements list no courses, because Core courses aren't in our catalog. Each Core area needs one course (a Pathway needs four), which will come from other credit (see "Other credit" below). Until a plan can choose its emphasis, the frontend checks only the major's requirements and the Software emphasis's.
+University Core requirements list no courses, because Core courses aren't in our catalog. Each Core area needs one course (a Pathway needs four), which will come from other credit (see "Other credit" below). The frontend checks the major's requirements and the open plan's emphasis's. It doesn't check the Core's yet, since only other credit can meet them.
 
 The data follows the 2026-27 SCU Undergraduate Bulletin (College of Arts and Sciences, B.S. in Computer Science), with these simplifications:
 
