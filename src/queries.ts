@@ -21,9 +21,9 @@ import {
   fetchRequirements,
   logIn,
   logOut,
-  updatePlan,
   savePlan,
   signUp,
+  updatePlan,
 } from './api';
 import type { LoadedPlan, PlanInfo, SignUp, Student } from './api';
 import { Catalog } from './Catalog';
@@ -138,8 +138,7 @@ export function usePrograms() {
 export function usePlanRequirements() {
   const all = useSuspenseQuery(requirementsQuery).data;
   const programs = usePrograms();
-  const { plans, planId } = usePlans();
-  const emphasis = plans.find((p) => p.planId === planId)?.programId ?? null;
+  const emphasis = usePlans().openPlan.programId;
   return useMemo(() => {
     const checked = new Set(programs.filter((p) => p.kind === 'major').map((p) => p.programId));
     if (emphasis !== null) checked.add(emphasis);

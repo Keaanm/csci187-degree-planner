@@ -29,9 +29,10 @@ const CREATED_AT = '2026-11-12T18:00:00.000Z';
 // `saveDelayMs` makes each PUT take that long. It starts logged in as ACCOUNT unless
 // `loggedIn` is false.
 //
-// ACCOUNT starts with one plan, "Main plan" (plan 1), holding `saved` (empty and never
-// saved without it), with `programId` as its emphasis (Software unless given; null is none). `extraPlans` adds more plans after it. Any other student starts with
-// no plans, like an account from before sign-up made one.
+// Like the server, every student starts with a "Main plan". ACCOUNT's is plan 1, holding
+// `saved` (empty and never saved without it), with `programId` as its emphasis (Software
+// unless given; null is none). `extraPlans` adds more plans after it. Any other student's
+// "Main plan" is empty, with no emphasis.
 //
 // It returns the PUT bodies, with extras: `mostAtOnce` is the most PUTs in flight at the
 // same time, `posts` records each POST as { url, body }, `requests` records every request
@@ -72,7 +73,7 @@ export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true
   ]);
   const myPlans = () => {
     if (!me) return [];
-    if (!plansByEmail.has(me.email)) plansByEmail.set(me.email, []);
+    if (!plansByEmail.has(me.email)) plansByEmail.set(me.email, [newPlan('Main plan')]);
     return plansByEmail.get(me.email) as FakePlan[];
   };
   const info = ({ courses: _courses, ...p }: FakePlan) => ({ ...p, shared: false });

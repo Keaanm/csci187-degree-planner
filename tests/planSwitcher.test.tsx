@@ -130,14 +130,6 @@ describe('switching plans', () => {
     renderSwitcher();
     expect(await courses('MATH 11')).toBeTruthy();
   });
-
-  it('makes a "Main plan" for a student who has none', async () => {
-    const backend = fakeBackend();
-    backend.plans().splice(0);
-    renderSwitcher();
-    expect(await optionNames()).toEqual(['Main plan']);
-    expect(backend.plans().map((p) => p.name)).toEqual(['Main plan']);
-  });
 });
 
 describe('making plans', () => {

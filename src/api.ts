@@ -66,7 +66,6 @@ export interface PlanInfo {
   shared: boolean;
 }
 
-export const FIRST_PLAN_NAME = 'Main plan';
 export const MAX_PLAN_NAME_LENGTH = 60;
 
 export interface LoadedPlan {
@@ -99,11 +98,11 @@ export async function fetchMe(fetchFn: Fetch = fetch): Promise<Student | null> {
 }
 
 export async function signUp(details: SignUp, fetchFn: Fetch = fetch): Promise<Student> {
-  return readJson<Student>(await postJson(fetchFn, '/api/signup', details));
+  return readJson<Student>(await sendJson(fetchFn, 'POST', '/api/signup', details));
 }
 
 export async function logIn(email: string, password: string, fetchFn: Fetch = fetch): Promise<Student> {
-  return readJson<Student>(await postJson(fetchFn, '/api/login', { email, password }));
+  return readJson<Student>(await sendJson(fetchFn, 'POST', '/api/login', { email, password }));
 }
 
 export async function logOut(fetchFn: Fetch = fetch): Promise<void> {
@@ -111,12 +110,12 @@ export async function logOut(fetchFn: Fetch = fetch): Promise<void> {
   if (!response.ok) await readJson(response);
 }
 
-// The logged-in student's plans, oldest first. A student with no plans yet (an account
-// from before sign-up created one) gets a "Main plan", so there is always one to show.
+// The logged-in student's plans, oldest first. Never empty: the server makes a "Main plan"
+// at sign-up, and for older accounts when it starts.
 export async function fetchPlans(fetchFn: Fetch = fetch): Promise<PlanInfo[]> {
   const plans = await getJson<PlanInfo[]>(fetchFn, '/api/me/plans');
-  if (plans.length > 0) return plans;
-  return [await createPlan({ name: FIRST_PLAN_NAME }, fetchFn)];
+  if (plans.length === 0) throw new Error('Your account has no plans. Try reloading the page.');
+  return plans;
 }
 
 // With `copyFrom`, the new plan starts with that plan's saved courses.
@@ -124,7 +123,7 @@ export async function createPlan(
   details: { name: string; programId?: number | null; copyFrom?: number },
   fetchFn: Fetch = fetch,
 ): Promise<PlanInfo> {
-  return readJson<PlanInfo>(await postJson(fetchFn, '/api/me/plans', details));
+  return readJson<PlanInfo>(await sendJson(fetchFn, 'POST', '/api/me/plans', details));
 }
 
 // Renames a plan or changes its emphasis (null for none). Fields left out don't change.
@@ -156,10 +155,6 @@ export async function savePlan(planId: number, plan: DegreePlan, fetchFn: Fetch 
 
 async function getJson<T>(fetchFn: Fetch, url: string): Promise<T> {
   return readJson<T>(await fetchFn(url));
-}
-
-function postJson(fetchFn: Fetch, url: string, body: unknown): Promise<Response> {
-  return sendJson(fetchFn, 'POST', url, body);
 }
 
 function sendJson(fetchFn: Fetch, method: string, url: string, body: unknown): Promise<Response> {

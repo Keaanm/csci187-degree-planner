@@ -64,6 +64,7 @@ describe('choosing an emphasis', () => {
     expect(has('Lower-division computer science')).toBe(true);
     expect(has('Security emphasis')).toBe(false);
     expect(has('Core:')).toBe(false);
+    expect(screen.getByText(/University Core requirements aren't checked yet/)).toBeTruthy();
     expect(screen.getByText(/0 of 7 requirements completed/)).toBeTruthy();
   });
 

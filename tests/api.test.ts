@@ -157,15 +157,8 @@ describe('API client plans', () => {
     expect(calls.map((c) => c.url)).toEqual(['/api/me/plans']);
   });
 
-  it('makes a "Main plan" for a student with no plans', async () => {
-    const calls: Call[] = [];
-    const fetchFn = (async (url: string, init?: RequestInit) => {
-      calls.push({ url, init });
-      return init?.method === 'POST' ? new Response(JSON.stringify(main), { status: 201 }) : new Response('[]');
-    }) as typeof fetch;
-    expect(await fetchPlans(fetchFn)).toEqual([main]);
-    expect(calls[1].url).toBe('/api/me/plans');
-    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ name: 'Main plan' });
+  it('never shows an empty plan list, since the server always makes a "Main plan"', async () => {
+    await expect(fetchPlans(fakeFetch(200, []).fetchFn)).rejects.toThrow('Your account has no plans');
   });
 
   it('makes a plan, optionally as a copy of another', async () => {

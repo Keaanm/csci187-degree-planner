@@ -3,11 +3,11 @@ import { usePrograms, useUpdatePlan } from '@/queries';
 
 // Chooses the open plan's CS emphasis, which decides which requirements it checks.
 export default function EmphasisPicker() {
-  const { plans, planId } = usePlans();
+  const { openPlan, planId } = usePlans();
   const programs = usePrograms();
   const update = useUpdatePlan();
   const emphases = programs.filter((p) => p.kind === 'emphasis');
-  const current = plans.find((p) => p.planId === planId)?.programId ?? null;
+  const current = openPlan.programId;
   // While a change saves, show the new choice.
   const shown = update.isPending && update.variables.planId === planId ? update.variables.programId : current;
 

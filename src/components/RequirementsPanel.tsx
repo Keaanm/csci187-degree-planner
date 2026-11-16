@@ -15,6 +15,10 @@ export default function RequirementsPanel() {
       </CardHeader>
       <CardContent className="space-y-4">
         <EmphasisPicker />
+        <p className="text-sm text-muted-foreground">
+          University Core requirements aren't checked yet. They'll be met with Core, AP and transfer credit, which is
+          coming soon.
+        </p>
         <ul className="space-y-4">
           {plan.requirementProgress(requirements).map((progress) => (
             <RequirementItem key={progress.requirement.description} progress={progress} />

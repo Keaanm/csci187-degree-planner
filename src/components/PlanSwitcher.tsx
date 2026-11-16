@@ -22,12 +22,11 @@ type OpenDialog = 'new' | 'rename' | 'delete' | null;
 // Picks which of the student's plans is open, and makes, copies, renames and deletes plans.
 // Opening another plan waits until the open plan's changes are saved, so none are lost.
 export default function PlanSwitcher() {
-  const { plans, planId, selectPlan, opening } = usePlans();
+  const { plans, openPlan: current, planId, selectPlan, opening } = usePlans();
   const { saved, saveError } = usePlan();
   const [dialog, setDialog] = useState<OpenDialog>(null);
   // A plan to open as soon as the open plan's changes are saved.
   const [waitingFor, setWaitingFor] = useState<number | null>(null);
-  const current = plans.find((p) => p.planId === planId) ?? plans[0];
 
   useEffect(() => {
     if (waitingFor !== null && saved) {
