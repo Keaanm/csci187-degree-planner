@@ -1,10 +1,11 @@
+import EmphasisPicker from '@/components/EmphasisPicker';
 import RequirementItem from '@/components/RequirementItem';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { usePlan } from '@/PlanContext';
-import { useRequirements } from '@/queries';
+import { usePlanRequirements } from '@/queries';
 
 export default function RequirementsPanel() {
-  const requirements = useRequirements();
+  const requirements = usePlanRequirements();
   const { plan } = usePlan();
 
   return (
@@ -12,7 +13,12 @@ export default function RequirementsPanel() {
       <CardHeader>
         <CardTitle>Requirements</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <EmphasisPicker />
+        <p className="text-sm text-muted-foreground">
+          University Core requirements aren't checked yet. They'll be met with Core, AP and transfer credit, which is
+          coming soon.
+        </p>
         <ul className="space-y-4">
           {plan.requirementProgress(requirements).map((progress) => (
             <RequirementItem key={progress.requirement.description} progress={progress} />

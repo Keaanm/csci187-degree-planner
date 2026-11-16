@@ -29,16 +29,18 @@ const CREATED_AT = '2026-11-12T18:00:00.000Z';
 // `saveDelayMs` makes each PUT take that long. It starts logged in as ACCOUNT unless
 // `loggedIn` is false.
 //
-// ACCOUNT starts with one plan, "Main plan" (plan 1), holding `saved` (empty and never
-// saved without it). `extraPlans` adds more plans after it. Any other student starts with
-// no plans, like an account from before sign-up made one.
+// Like the server, every student starts with a "Main plan". ACCOUNT's is plan 1, holding
+// `saved` (empty and never saved without it), with `programId` as its emphasis (Software
+// unless given; null is none). `extraPlans` adds more plans after it. Any other student's
+// "Main plan" is empty, with no emphasis.
 //
 // It returns the PUT bodies, with extras: `mostAtOnce` is the most PUTs in flight at the
 // same time, `posts` records each POST as { url, body }, `requests` records every request
 // as "METHOD url", `plans()` is the logged-in student's plans now, and `endSession()` ends
 // the session on the server, as if it expired. Setting `meStillLoggedIn` makes /api/me keep
 // answering as ACCOUNT after that, as when a session ends between two requests.
-export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true, extraPlans = [] }: {
+export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true, extraPlans = [], programId = 2 }: {
+  programId?: number | null;
   saved?: SavedPlan;
   saveError?: string;
   saveDelayMs?: number;
@@ -48,10 +50,15 @@ export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true
   let me: typeof ACCOUNT | null = loggedIn ? ACCOUNT : null;
   let inFlight = 0;
   let nextPlanId = 1;
-  const newPlan = (name: string, courses: SavedPlan['courses'] = [], lastSaved: string | null = CREATED_AT): FakePlan => ({
+  const newPlan = (
+    name: string,
+    courses: SavedPlan['courses'] = [],
+    lastSaved: string | null = CREATED_AT,
+    emphasis: number | null = null,
+  ): FakePlan => ({
     planId: nextPlanId++,
     name,
-    programId: null,
+    programId: emphasis,
     lastSaved,
     courses,
   });
@@ -59,14 +66,14 @@ export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true
     [
       ACCOUNT.email,
       [
-        newPlan('Main plan', saved?.courses, saved?.lastSaved ?? null),
+        newPlan('Main plan', saved?.courses, saved?.lastSaved ?? null, programId),
         ...extraPlans.map((p) => newPlan(p.name, p.courses, SAVED_AT)),
       ],
     ],
   ]);
   const myPlans = () => {
     if (!me) return [];
-    if (!plansByEmail.has(me.email)) plansByEmail.set(me.email, []);
+    if (!plansByEmail.has(me.email)) plansByEmail.set(me.email, [newPlan('Main plan')]);
     return plansByEmail.get(me.email) as FakePlan[];
   };
   const info = ({ courses: _courses, ...p }: FakePlan) => ({ ...p, shared: false });
@@ -101,6 +108,9 @@ export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true
         })),
       );
     }
+    if (url === '/api/programs') {
+      return json(200, programData.map((p, i) => ({ programId: i + 1, ...p })));
+    }
     if (url === '/api/me') {
       if (puts.meStillLoggedIn) return json(200, ACCOUNT);
       return me ? json(200, me) : loggedOut();
@@ -125,14 +135,16 @@ export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true
     const plans = myPlans();
     const badName = (name: unknown) =>
       typeof name !== 'string' || !name.trim() || [...name.trim()].length > 60 ? 'Plan names are 1 to 60 characters' : null;
+    const isEmphasis = (id: unknown) => id === null || programData[Number(id) - 1]?.kind === 'emphasis';
 
     if (url === '/api/me/plans') {
       if (init?.method !== 'POST') return json(200, plans.map(info));
       const problem = badName(body.name);
       if (problem) return json(400, { error: problem });
+      if (body.programId !== undefined && !isEmphasis(body.programId)) return json(400, { error: 'Not an emphasis' });
       const from = body.copyFrom === undefined ? undefined : plans.find((p) => p.planId === body.copyFrom);
       if (body.copyFrom !== undefined && !from) return json(404, { error: 'Plan not found' });
-      const created = newPlan(body.name.trim(), from ? [...from.courses] : []);
+      const created = newPlan(body.name.trim(), from ? [...from.courses] : [], CREATED_AT, body.programId ?? null);
       plans.push(created);
       return json(201, info(created));
     }
@@ -144,6 +156,10 @@ export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true
         const problem = badName(body.name);
         if (problem) return json(400, { error: problem });
         plan.name = body.name.trim();
+      }
+      if (body.programId !== undefined) {
+        if (!isEmphasis(body.programId)) return json(400, { error: 'Not an emphasis' });
+        plan.programId = body.programId;
       }
       return json(200, info(plan));
     }

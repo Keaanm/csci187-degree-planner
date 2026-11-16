@@ -6,10 +6,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import PlanProvider from '../src/components/PlanProvider';
+import PlansProvider from '../src/components/PlansProvider';
 import CoursePage from '../src/pages/CoursePage';
 import CoursesPage from '../src/pages/CoursesPage';
-import { fakeBackend } from './fakeBackend';
+import { ACCOUNT, fakeBackend } from './fakeBackend';
 
 function renderAt(path: string) {
   fakeBackend({
@@ -26,12 +26,12 @@ function renderAt(path: string) {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
         <Suspense fallback={<p>Loading…</p>}>
-          <PlanProvider planId={1}>
+          <PlansProvider student={ACCOUNT}>
             <Routes>
               <Route path="/courses" element={<CoursesPage />} />
               <Route path="/courses/:code" element={<CoursePage />} />
             </Routes>
-          </PlanProvider>
+          </PlansProvider>
         </Suspense>
       </MemoryRouter>
     </QueryClientProvider>,

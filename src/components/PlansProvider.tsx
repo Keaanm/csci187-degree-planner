@@ -17,7 +17,8 @@ export default function PlansProvider({ student, children, autosaveDelay }: {
   const [chosen, setChosen] = useState<number | null>(() => rememberedPlan(student.email));
   const [opening, startOpening] = useTransition();
   // A deleted (or someone else's remembered) plan falls back to the oldest one.
-  const planId = plans.some((p) => p.planId === chosen) ? (chosen as number) : plans[0].planId;
+  const openPlan = plans.find((p) => p.planId === chosen) ?? plans[0];
+  const planId = openPlan.planId;
 
   const selectPlan = useCallback(
     (id: number) => {
@@ -29,7 +30,7 @@ export default function PlansProvider({ student, children, autosaveDelay }: {
   );
 
   return (
-    <PlansContext.Provider value={{ plans, planId, selectPlan, opening }}>
+    <PlansContext.Provider value={{ plans, openPlan, planId, selectPlan, opening }}>
       <PlanProvider key={planId} planId={planId} autosaveDelay={autosaveDelay}>
         {children}
       </PlanProvider>

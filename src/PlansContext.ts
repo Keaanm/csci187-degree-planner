@@ -4,7 +4,8 @@ import type { PlanInfo } from './api';
 interface PlansState {
   // The student's plans, oldest first. Never empty.
   plans: PlanInfo[];
-  // The plan that's open.
+  // The plan that's open, and its id.
+  openPlan: PlanInfo;
   planId: number;
   // Opens another plan. Unsaved changes to the open plan are lost, so callers wait until
   // it's saved (see PlanSwitcher).

@@ -12,7 +12,7 @@ import {
   fetchRequirements,
   logIn,
   logOut,
-  renamePlan,
+  updatePlan,
   savePlan,
   signUp,
 } from '../src/api';
@@ -57,14 +57,18 @@ describe('API client', () => {
     expect(requirement.isSatisfiedBy(['CSCI 168', 'CSCI 180'])).toBe(true);
   });
 
-  it('only checks the major and the Software emphasis until a plan can choose its emphasis', async () => {
+  it("keeps each requirement's program, so a plan can check its own emphasis", async () => {
     const { fetchFn } = fakeFetch(200, [
       { requirementId: 1, description: 'Major', count: 1, programId: 1, units: null, courses: ['CSCI 10'] },
       { requirementId: 8, description: 'Security', count: 1, programId: 5, units: null, courses: ['CSCI 181'] },
       { requirementId: 14, description: 'Core: Ethics', count: 1, programId: 6, units: null, courses: [] },
     ]);
     const requirements = await fetchRequirements(fetchFn);
-    expect(requirements.map((r) => r.description)).toEqual(['Major']);
+    expect(requirements.map((r) => [r.description, r.programId])).toEqual([
+      ['Major', 1],
+      ['Security', 5],
+      ['Core: Ethics', 6],
+    ]);
   });
 
   it('loads a saved plan with its completed courses and last-saved time', async () => {
@@ -153,15 +157,8 @@ describe('API client plans', () => {
     expect(calls.map((c) => c.url)).toEqual(['/api/me/plans']);
   });
 
-  it('makes a "Main plan" for a student with no plans', async () => {
-    const calls: Call[] = [];
-    const fetchFn = (async (url: string, init?: RequestInit) => {
-      calls.push({ url, init });
-      return init?.method === 'POST' ? new Response(JSON.stringify(main), { status: 201 }) : new Response('[]');
-    }) as typeof fetch;
-    expect(await fetchPlans(fetchFn)).toEqual([main]);
-    expect(calls[1].url).toBe('/api/me/plans');
-    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ name: 'Main plan' });
+  it('never shows an empty plan list, since the server always makes a "Main plan"', async () => {
+    await expect(fetchPlans(fakeFetch(200, []).fetchFn)).rejects.toThrow('Your account has no plans');
   });
 
   it('makes a plan, optionally as a copy of another', async () => {
@@ -171,13 +168,16 @@ describe('API client plans', () => {
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ name: 'Abroad', copyFrom: 3 });
   });
 
-  it('renames a plan with a PATCH', async () => {
+  it('renames a plan or changes its emphasis with a PATCH', async () => {
     const { fetchFn, calls } = fakeFetch(200, { ...main, name: 'Plan A' });
-    expect((await renamePlan(3, 'Plan A', fetchFn)).name).toBe('Plan A');
+    expect((await updatePlan(3, { name: 'Plan A' }, fetchFn)).name).toBe('Plan A');
     expect(calls[0].url).toBe('/api/me/plans/3');
     expect(calls[0].init?.method).toBe('PATCH');
     expect(new Headers(calls[0].init?.headers).get('Content-Type')).toBe('application/json');
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ name: 'Plan A' });
+    const emphasis = fakeFetch(200, { ...main, programId: 4 });
+    expect((await updatePlan(3, { programId: 4 }, emphasis.fetchFn)).programId).toBe(4);
+    expect(JSON.parse(String(emphasis.calls[0].init?.body))).toEqual({ programId: 4 });
   });
 
   it("deletes a plan, and shows the server's reason when it can't", async () => {
