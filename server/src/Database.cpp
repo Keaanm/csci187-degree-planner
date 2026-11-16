@@ -221,11 +221,13 @@ void Database::createTables() {
 
   // Before retakes, plan_course allowed each course once per plan and had no 'failed'
   // status. Rebuild it with the new key and status, copying every saved row.
+  // The old table's primary key is (plan_id, course_id); the new one adds quarter.
   bool beforeRetakes;
   {
     // Scoped so the statement is finished before the table is dropped.
-    Statement old(db_, "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'plan_course'");
-    beforeRetakes = old.step() && old.textAt(0).find("'failed'") == std::string::npos;
+    Statement keyColumns(db_, "SELECT COUNT(*) FROM pragma_table_info('plan_course') WHERE pk > 0");
+    keyColumns.step();
+    beforeRetakes = keyColumns.intAt(0) == 2;
   }
   if (beforeRetakes) {
     exec("BEGIN");
@@ -598,8 +600,9 @@ SavedPlan Database::savePlan(int studentId, const std::vector<PlanRow>& rows, st
     }
     findCourse.reset();
   }
-  // Same rule as the frontend: a course can be in the plan more than once only if every
-  // attempt but the last is failed, and each attempt is in a later quarter than the one before.
+  // A course can be in the plan more than once only if every attempt but the last is failed,
+  // and each attempt is in a later quarter than the one before. (The frontend doesn't plan
+  // retakes yet; when it does, it should follow the same rule.)
   for (auto& [code, list] : attempts) {
     std::stable_sort(list.begin(), list.end(),
                      [](const PlanRow* a, const PlanRow* b) { return a->quarter < b->quarter; });
