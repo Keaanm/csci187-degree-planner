@@ -210,6 +210,51 @@ describe('making plans', () => {
   });
 });
 
+describe('a new plan that gets a deleted plan\'s id (#22)', () => {
+  // The server reuses the id of the newest plan after it's deleted.
+  const makeAndOpen = async (name: string, copy = false) => {
+    click('New plan');
+    const form = await dialog();
+    fireEvent.change(within(form).getByLabelText('Name'), { target: { value: name } });
+    if (copy) fireEvent.click(within(form).getByLabelText('A copy of “Main plan”'));
+    click('Make plan', form);
+    await waitFor(async () => expect((await picker()).selectedOptions[0].text).toBe(name));
+  };
+  const deleteOpenPlan = async () => {
+    click('Delete');
+    click('Delete plan', await dialog());
+    await waitFor(async () => expect((await picker()).selectedOptions[0].text).toBe('Main plan'));
+  };
+
+  it("starts empty instead of showing the deleted plan's courses", async () => {
+    const backend = fakeBackend({ saved: { lastSaved: '2026-11-01T18:00:00.000Z', courses: [CSCI_10] } });
+    renderSwitcher();
+    await courses('CSCI 10');
+    await makeAndOpen('Abroad');
+    click('Add CSCI 60');
+    await screen.findByText(/^Saved /, {}, { timeout: 2000 });
+    await deleteOpenPlan();
+    await makeAndOpen('Fresh');
+    expect(backend.plans()[1].planId).toBe(2);  // the deleted plan's id
+    expect(await courses('no courses')).toBeTruthy();
+  });
+
+  it("copies the open plan, not the deleted plan, and doesn't save the deleted plan's courses over it", async () => {
+    const backend = fakeBackend({ saved: { lastSaved: '2026-11-01T18:00:00.000Z', courses: [CSCI_10] } });
+    renderSwitcher();
+    await courses('CSCI 10');
+    await makeAndOpen('Abroad');
+    click('Add CSCI 60');
+    await screen.findByText(/^Saved /, {}, { timeout: 2000 });
+    await deleteOpenPlan();
+    await makeAndOpen('Copy', true);
+    expect(await courses('CSCI 10')).toBeTruthy();
+    click('Add CSCI 60');
+    await screen.findByText(/^Saved /, {}, { timeout: 2000 });
+    expect(backend.plans()[1].courses).toEqual([CSCI_10, { code: 'CSCI 60', quarter: 1, status: 'planned' }]);
+  });
+});
+
 describe('renaming and deleting plans', () => {
   it('renames the open plan', async () => {
     const backend = fakeBackend();

@@ -150,6 +150,8 @@ export function fakeBackend({ saved, saveError, saveDelayMs = 0, loggedIn = true
     if (init?.method === 'DELETE') {
       if (plans.length === 1) return json(400, { error: 'You need at least one plan' });
       plans.splice(plans.indexOf(plan), 1);
+      // Like SQLite's INTEGER PRIMARY KEY, deleting the newest plan frees its id for the next one.
+      if (plan.planId === nextPlanId - 1) nextPlanId--;
       return new Response(null, { status: 204 });
     }
     if (init?.method === 'PUT') {

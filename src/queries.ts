@@ -173,6 +173,9 @@ export function useCreatePlan() {
   return useMutation({
     mutationFn: (details: { name: string; copyFrom?: number }) => createPlan(details),
     onSuccess: (created) => {
+      // The server can give a new plan the id of a plan deleted earlier, whose courses are
+      // still cached. Dropping them makes the new plan load its own (#22).
+      queryClient.removeQueries({ queryKey: planKey(student, created.planId), exact: true });
       queryClient.setQueryData<PlanInfo[]>(planListKey(student), (plans) => [...(plans ?? []), created]);
     },
   });
@@ -186,8 +189,8 @@ export function useRenamePlan() {
   });
 }
 
-// The deleted plan's courses stay cached until the session ends: removing them while the
-// plan is still on screen would refetch it and get a 404.
+// The deleted plan's courses stay cached: removing them while the plan is still on screen
+// would refetch it and get a 404. useCreatePlan drops them if the id is reused.
 // Deletes a plan and opens `next` instead. `next` is loaded before the plan is deleted, so
 // the page goes straight from one plan to the other instead of showing "Loading…".
 export function useDeletePlan() {
