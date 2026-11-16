@@ -122,6 +122,54 @@ void Database::addPlanColumns() {
   if (!hasColumn("degree_plan", "program_id")) {
     exec("ALTER TABLE degree_plan ADD COLUMN program_id INTEGER REFERENCES program(program_id) ON DELETE SET NULL");
   }
+  neverReusePlanIds();
+  // Every student has at least one plan. Sign-up makes a "Main plan"; students who signed
+  // up before it did (and never saved) get an empty one here.
+  Statement backfill(db_, R"sql(
+    INSERT INTO degree_plan (student_id, last_saved)
+      SELECT student_id, ? FROM student
+      WHERE student_id NOT IN (SELECT student_id FROM degree_plan))sql");
+  backfill.bind(1, nowIso());
+  backfill.run();
+}
+
+// Without AUTOINCREMENT, SQLite gives a new plan the id of the newest plan if it was
+// deleted. A browser that still had the deleted plan open would then save its courses over
+// the new plan (#22). Older databases are rebuilt with AUTOINCREMENT, keeping every plan
+// and its id, so saved courses stay attached.
+void Database::neverReusePlanIds() {
+  Statement autoincrement(db_, R"sql(
+    SELECT 1 FROM sqlite_master
+    WHERE type = 'table' AND name = 'degree_plan' AND sql LIKE '%AUTOINCREMENT%')sql");
+  if (autoincrement.step()) return;
+  // Foreign keys must be off while degree_plan is dropped, or dropping it would delete
+  // every plan_course row. The pragma can't change inside a transaction.
+  exec("PRAGMA foreign_keys = OFF");
+  exec("BEGIN");
+  try {
+    exec(R"sql(
+      CREATE TABLE degree_plan_new (
+        plan_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id INTEGER NOT NULL REFERENCES student(student_id) ON DELETE CASCADE,
+        last_saved TEXT NOT NULL,
+        name       TEXT NOT NULL DEFAULT 'Main plan',
+        program_id INTEGER REFERENCES program(program_id) ON DELETE SET NULL
+      );
+      INSERT INTO degree_plan_new (plan_id, student_id, last_saved, name, program_id)
+        SELECT plan_id, student_id, last_saved, name, program_id FROM degree_plan;
+      DROP TABLE degree_plan;
+      ALTER TABLE degree_plan_new RENAME TO degree_plan;
+      CREATE INDEX IF NOT EXISTS degree_plan_student ON degree_plan(student_id);
+    )sql");
+    Statement broken(db_, "SELECT 1 FROM pragma_foreign_key_check");
+    if (broken.step()) throw std::runtime_error("Rebuilding degree_plan broke a foreign key");
+    exec("COMMIT");
+  } catch (...) {
+    exec("ROLLBACK");
+    exec("PRAGMA foreign_keys = ON");
+    throw;
+  }
+  exec("PRAGMA foreign_keys = ON");
 }
 
 // The major, its emphases and the University Core. Seeded from programs.json.
@@ -210,8 +258,10 @@ void Database::createTables() {
     );
     -- Not UNIQUE on student_id: the final ER diagram lets a student own several plans.
     -- For now the API only uses each student's first plan (see Database::plan).
+    -- AUTOINCREMENT so a deleted plan's id is never given to a new plan (see
+    -- neverReusePlanIds).
     CREATE TABLE IF NOT EXISTS degree_plan (
-      plan_id    INTEGER PRIMARY KEY,
+      plan_id    INTEGER PRIMARY KEY AUTOINCREMENT,
       student_id INTEGER NOT NULL REFERENCES student(student_id) ON DELETE CASCADE,
       last_saved TEXT NOT NULL
     );
@@ -659,10 +709,22 @@ int Database::createStudent(const std::string& email, const std::string& passwor
   taken.bind(1, email);
   if (taken.step()) throw EmailTaken("An account with that email already exists");
 
-  Statement insert(db_, "INSERT INTO student (email, password_hash, start_year) VALUES (?, ?, ?)");
-  insert.bind(1, email).bind(2, passwordHash).bind(3, startYear);
-  insert.run();
-  return static_cast<int>(sqlite3_last_insert_rowid(db_));
+  // The student and their first plan, an empty "Main plan" with no emphasis, together.
+  exec("BEGIN");
+  try {
+    Statement insert(db_, "INSERT INTO student (email, password_hash, start_year) VALUES (?, ?, ?)");
+    insert.bind(1, email).bind(2, passwordHash).bind(3, startYear);
+    insert.run();
+    int studentId = static_cast<int>(sqlite3_last_insert_rowid(db_));
+    Statement plan(db_, "INSERT INTO degree_plan (student_id, last_saved, name) VALUES (?, ?, 'Main plan')");
+    plan.bind(1, studentId).bind(2, nowIso());
+    plan.run();
+    exec("COMMIT");
+    return studentId;
+  } catch (...) {
+    exec("ROLLBACK");
+    throw;
+  }
 }
 
 std::optional<StudentLogin> Database::findStudentByEmail(const std::string& email) {

@@ -87,6 +87,7 @@ class Database {
   std::optional<nlohmann::json> planById(int studentId, int planId);
 
   // email should already be trimmed and lowercased. Throws EmailTaken. Returns the new id.
+  // Also makes the student's first plan, an empty "Main plan".
   int createStudent(const std::string& email, const std::string& passwordHash, int startYear);
   std::optional<StudentLogin> findStudentByEmail(const std::string& email);
   // { "email", "startYear" }, or std::nullopt for an unknown id.
@@ -108,6 +109,7 @@ class Database {
 
   void createProgramTable();
   void addPlanColumns();
+  void neverReusePlanIds();
   // Callers must hold mutex_.
   bool ownsPlan(int studentId, int planId);
   nlohmann::json planSummary(int planId);
