@@ -268,9 +268,15 @@ int main() {
     return alice->Put(path, body, "application/json");
   };
 
-  // GET /api/me/plan before saving is a 404.
+  // Sign-up makes an empty "Main plan" with no emphasis, so there's always a plan.
   {
-    CHECK(status(alice->Get("/api/me/plan")) == 404);
+    json plan = body(alice->Get("/api/me/plan"));
+    CHECK(plan["courses"].empty());
+    json plans = body(alice->Get("/api/me/plans"));
+    CHECK(plans.size() == 1);
+    CHECK(plans[0]["name"] == "Main plan");
+    CHECK(plans[0]["programId"].is_null());
+    CHECK(plans[0]["planId"] == plan["planId"]);
   }
 
   // PUT then GET returns the courses in the order they were added within each quarter.
@@ -402,7 +408,7 @@ int main() {
   // One student can't see or change another's plan.
   {
     auto bob = newStudent("bob@scu.edu");
-    CHECK(status(bob->Get("/api/me/plan")) == 404);  // Bob gets his own empty plan, not Alice's
+    CHECK(body(bob->Get("/api/me/plan"))["courses"].empty());  // Bob gets his own empty plan, not Alice's
 
     auto res = bob->Put("/api/me/plan", R"({"courses": [{"code": "CHEM 11", "quarter": 5, "status": "planned"}]})",
                         "application/json");
@@ -522,7 +528,9 @@ int main() {
 
     // Another student's plans are 404s, the same as plans that don't exist.
     auto carol = newStudent("carol@scu.edu");
-    CHECK(body(carol->Get("/api/me/plans")).empty());
+    json carolsPlans = body(carol->Get("/api/me/plans"));  // only her own "Main plan"
+    CHECK(carolsPlans.size() == 1);
+    CHECK(carolsPlans[0]["planId"] != mainId);
     CHECK(status(carol->Get(planUrl(mainId))) == 404);
     CHECK(status(carol->Put(planUrl(mainId), R"({"courses": []})", "application/json")) == 404);
     CHECK(status(patchPlan(*carol, mainId, {{"name", "Mine now"}})) == 404);
@@ -661,7 +669,9 @@ int main() {
       Database migrated(path.string());
       migrated.seed(DEFAULT_DATA_DIR);
       int studentId = migrated.createStudent("dana@scu.edu", auth::hashPassword("correct horse"), 2025);
-      CHECK(!migrated.plan(studentId));  // the ownerless plan 1 isn't anyone's
+      // The ownerless plan was dropped, so her own new "Main plan" is empty.
+      auto own = migrated.plan(studentId);
+      CHECK(own && (*own)["courses"].empty());
       migrated.savePlan(studentId, {{"CSCI 10", 0, "planned"}});
       auto plan = migrated.plan(studentId);
       CHECK(plan && (*plan)["courses"].size() == 1);
@@ -756,6 +766,39 @@ int main() {
       CHECK(plan && (*plan)["courses"].size() == 2);
     }
     CHECK(count("SELECT COUNT(*) FROM pragma_table_info('plan_course') WHERE pk > 0") == 3);
+    std::filesystem::remove(path);
+  }
+
+  // Students who signed up before sign-up made a plan, and never saved one, get an empty
+  // "Main plan" when the server starts. Students who already have plans get no extra one.
+  {
+    auto path = std::filesystem::temp_directory_path() / "degree_planner_main_plan_test.db";
+    std::filesystem::remove(path);
+    int withPlan;
+    {
+      Database fresh(path.string());
+      fresh.seed(DEFAULT_DATA_DIR);
+      withPlan = fresh.createStudent("gina@scu.edu", auth::hashPassword("correct horse"), 2025);
+      fresh.createPlan(withPlan, "Abroad", std::nullopt, std::nullopt);
+    }
+    sqlite3* old = nullptr;
+    sqlite3_open(path.string().c_str(), &old);
+    sqlite3_exec(old, "INSERT INTO student (email, password_hash, start_year) VALUES ('hal@scu.edu', 'x', 2024)",
+                 nullptr, nullptr, nullptr);
+    int noPlan = static_cast<int>(sqlite3_last_insert_rowid(old));
+    sqlite3_close(old);
+    {
+      Database restarted(path.string());
+      json plans = restarted.plans(noPlan);
+      CHECK(plans.size() == 1);
+      CHECK(plans[0]["name"] == "Main plan");
+      CHECK(plans[0]["programId"].is_null());
+      CHECK(restarted.plans(withPlan).size() == 2);
+    }
+    {
+      Database again(path.string());  // a second start adds nothing
+      CHECK(again.plans(noPlan).size() == 1);
+    }
     std::filesystem::remove(path);
   }
 

@@ -122,6 +122,14 @@ void Database::addPlanColumns() {
   if (!hasColumn("degree_plan", "program_id")) {
     exec("ALTER TABLE degree_plan ADD COLUMN program_id INTEGER REFERENCES program(program_id) ON DELETE SET NULL");
   }
+  // Every student has at least one plan. Sign-up makes a "Main plan"; students who signed
+  // up before it did (and never saved) get an empty one here.
+  Statement backfill(db_, R"sql(
+    INSERT INTO degree_plan (student_id, last_saved)
+      SELECT student_id, ? FROM student
+      WHERE student_id NOT IN (SELECT student_id FROM degree_plan))sql");
+  backfill.bind(1, nowIso());
+  backfill.run();
 }
 
 // The major, its emphases and the University Core. Seeded from programs.json.
@@ -659,10 +667,22 @@ int Database::createStudent(const std::string& email, const std::string& passwor
   taken.bind(1, email);
   if (taken.step()) throw EmailTaken("An account with that email already exists");
 
-  Statement insert(db_, "INSERT INTO student (email, password_hash, start_year) VALUES (?, ?, ?)");
-  insert.bind(1, email).bind(2, passwordHash).bind(3, startYear);
-  insert.run();
-  return static_cast<int>(sqlite3_last_insert_rowid(db_));
+  // The student and their first plan, an empty "Main plan" with no emphasis, together.
+  exec("BEGIN");
+  try {
+    Statement insert(db_, "INSERT INTO student (email, password_hash, start_year) VALUES (?, ?, ?)");
+    insert.bind(1, email).bind(2, passwordHash).bind(3, startYear);
+    insert.run();
+    int studentId = static_cast<int>(sqlite3_last_insert_rowid(db_));
+    Statement plan(db_, "INSERT INTO degree_plan (student_id, last_saved, name) VALUES (?, ?, 'Main plan')");
+    plan.bind(1, studentId).bind(2, nowIso());
+    plan.run();
+    exec("COMMIT");
+    return studentId;
+  } catch (...) {
+    exec("ROLLBACK");
+    throw;
+  }
 }
 
 std::optional<StudentLogin> Database::findStudentByEmail(const std::string& email) {

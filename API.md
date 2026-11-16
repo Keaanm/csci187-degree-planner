@@ -68,7 +68,7 @@ Sign-up, login and `PUT` need `Content-Type: application/json` (**400** otherwis
 
 ### `POST /api/signup`
 
-Creates an account and logs it in.
+Creates an account and logs it in. The account starts with one empty plan, "Main plan", with no emphasis chosen.
 
 ```json
 { "email": "ana@scu.edu", "password": "correct horse", "startYear": 2025 }
@@ -204,7 +204,7 @@ Schema changes must keep existing students and plans: add columns with `ALTER TA
 
 ### Several plans (due Sun Nov 15)
 
-The routes are built (see "Several plans" above), and the frontend uses them; it no longer calls `/api/me/plan`, so that route can be removed. Still to do: sign-up creates the first plan, called "Main plan", with no emphasis chosen (`programId: null`), and students who signed up before this (and may have no plan yet) get a "Main plan" when the server starts, so every student always has at least one. Until then, the frontend makes a "Main plan" itself (`POST /api/me/plans`) when the list is empty.
+The routes are built (see "Several plans" above), and the frontend uses them; it no longer calls `/api/me/plan`, so that route can be removed. Sign-up makes the first plan, "Main plan", and students who signed up before that (and never saved) get one when the server starts, so every student has at least one. The frontend still makes a "Main plan" itself if the list is ever empty. Still to do: remove `/api/me/plan` and move its tests to `/api/me/plans/:planId`.
 
 ### Finished quarters (due Thu Nov 19)
 
