@@ -106,7 +106,7 @@ The logged-in student:
 
 ## `GET /api/me/plan`
 
-The logged-in student's plan. There's no plan id in the URL, so a student can only reach their own plan. Quarters are numbered 0 to 11 (0 = Year 1 Fall, 11 = Year 4 Spring). `status` is `"planned"` or `"completed"`. Courses come back in the order they were added within each quarter.
+The logged-in student's plan. There's no plan id in the URL, so a student can only reach their own plan. Quarters are numbered 0 to 11 (0 = Year 1 Fall, 11 = Year 4 Spring). `status` is `"planned"`, `"completed"` or `"failed"` (didn't pass or withdrew). A failed course counts toward nothing, and the same course can then be planned again in a later quarter, so a course is in a plan more than once when every earlier attempt is `"failed"`. Courses come back in the order they were added within each quarter.
 
 ```json
 {
@@ -206,13 +206,12 @@ Schema changes must keep existing students and plans: add columns with `ALTER TA
 
 The routes are built (see "Several plans" above). Still to do: sign-up creates the first plan, called "Main plan", with no emphasis chosen (`programId: null`), and students who signed up before this (and may have no plan yet) get a "Main plan" when the server starts, so every student always has at least one. Until then a new student has no plans until their first save. Once the frontend uses the new routes, `/api/me/plan` is removed.
 
-### Finished quarters and retakes (due Thu Nov 19)
+### Finished quarters (due Thu Nov 19)
 
 `GET /api/me` adds `confirmedThrough`: the last quarter (0 to 11) whose results the student has confirmed, or `null`.
 
 `PATCH /api/me` with `{ "confirmedThrough": 2, "planId": 3 }` records that the student confirmed every quarter up to and including that one, using plan 3's courses and passed/failed results. The past is the same in every plan, so the server copies those quarters (courses and results) into the student's other plans. **400** for a quarter that hasn't ended yet. A quarter ends on Dec 15 (Fall), Mar 25 (Winter) or Jun 15 (Spring) of its school year, using the server's date.
 
-A plan course's `status` can also be `"failed"` (didn't pass or withdrew). A failed course doesn't count toward anything, and the same course can then be planned again in a later quarter, so a course can be in a plan more than once if every earlier attempt is failed. This replaces today's 400 for "a course listed twice": `PUT` still rejects a course listed twice unless every earlier attempt is `"failed"`. `plan_course` needs a new key (`plan_id, course_id, quarter`) and the new status, so it's rebuilt with a copy, keeping every saved row.
 
 ### Other credit (due Sun Nov 22)
 
@@ -241,7 +240,7 @@ degree_requirement  (requirement_id PK, description, count, program_id, units)
 program             (program_id PK, name, kind)
 course_requirement  (course_id, requirement_id, position)        -- satisfies
 degree_plan         (plan_id PK, student_id, last_saved)     -- owns
-plan_course         (plan_id, course_id, quarter, status, position) -- contains
+plan_course         (plan_id, course_id, quarter, status, position) -- contains; PK (plan_id, course_id, quarter)
 ```
 
 Differences from the ER diagram, in `server/src/Database.cpp`:
@@ -252,6 +251,7 @@ Differences from the ER diagram, in `server/src/Database.cpp`:
 - `GET` and `PUT /api/me/plan` use the student's first plan (the oldest).
 - `degree_plan` also has `name` and `program_id` (the emphasis, or NULL). They were added with `ALTER TABLE`, so plans saved before them are kept and named "Main plan".
 - Plans saved before accounts existed had no owner, so the server drops them the first time it starts with the new tables.
-- `PUT` also returns **400** for a course that isn't offered, a course listed twice, or a quarter over 18 units.
+- `PUT` also returns **400** for a course that isn't offered, a quarter over 18 units, a course listed twice in the same quarter, or a course listed more than once where an earlier attempt isn't `"failed"`. Rows can be in any order. A failed course still counts toward its quarter's 18 units.
+- Before retakes, `plan_course` was keyed by (`plan_id, course_id`) and had no `"failed"` status. The server rebuilds an old table on start with a copy, keeping every saved row.
 
 The backend seeds the database from `src/data/courses.json`, `src/data/requirements.json` and `src/data/programs.json` on every start. Every prerequisite and requirement course must be a course in `courses.json`, or the server won't start.

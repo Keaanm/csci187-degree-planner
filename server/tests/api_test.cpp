@@ -323,6 +323,21 @@ int main() {
         R"({"courses": [{"code": "FAKE 1", "quarter": 0, "status": "planned"}]})",
         R"({"courses": [{"code": "CSCI 10", "quarter": 0, "status": "planned"},
                         {"code": "CSCI 10", "quarter": 1, "status": "planned"}]})",
+        // Retakes: only after a failed attempt, and only in a later quarter.
+        R"({"courses": [{"code": "CSCI 10", "quarter": 0, "status": "completed"},
+                        {"code": "CSCI 10", "quarter": 1, "status": "planned"}]})",
+        R"({"courses": [{"code": "CSCI 10", "quarter": 0, "status": "failed"},
+                        {"code": "CSCI 10", "quarter": 0, "status": "planned"}]})",
+        R"({"courses": [{"code": "CSCI 10", "quarter": 1, "status": "failed"},
+                        {"code": "CSCI 10", "quarter": 0, "status": "planned"}]})",
+        R"({"courses": [{"code": "CSCI 10", "quarter": 0, "status": "planned"},
+                        {"code": "CSCI 10", "quarter": 1, "status": "failed"}]})",
+        // A failed course still counts toward its quarter's 18 units (5 + 5 + 4 + 4 + 4).
+        R"({"courses": [{"code": "CSCI 10", "quarter": 0, "status": "failed"},
+                        {"code": "CSCI 60", "quarter": 0, "status": "planned"},
+                        {"code": "MATH 11", "quarter": 0, "status": "planned"},
+                        {"code": "MATH 12", "quarter": 0, "status": "planned"},
+                        {"code": "MATH 13", "quarter": 0, "status": "planned"}]})",
     };
     for (const char* bad_body : bad) {
       auto res = put("/api/me/plan", bad_body);
@@ -333,6 +348,32 @@ int main() {
     CHECK(status(alice->Put("/api/me/plan", R"({"courses": []})", "text/plain")) == 400);
     json plan = body(alice->Get("/api/me/plan"));
     CHECK(plan["courses"].size() == 1);
+  }
+
+  // A failed course can be retaken in a later quarter, more than once, and every attempt is
+  // saved with its status. Rows can come in any order.
+  {
+    auto res = put("/api/me/plan", R"({"courses": [
+      {"code": "CSCI 10", "quarter": 2, "status": "planned"},
+      {"code": "CSCI 10", "quarter": 0, "status": "failed"},
+      {"code": "CSCI 10", "quarter": 1, "status": "failed"}
+    ]})");
+    CHECK(status(res) == 200);
+    json retakes = json::parse(R"([
+      {"code": "CSCI 10", "quarter": 0, "status": "failed"},
+      {"code": "CSCI 10", "quarter": 1, "status": "failed"},
+      {"code": "CSCI 10", "quarter": 2, "status": "planned"}
+    ])");
+    CHECK(body(alice->Get("/api/me/plan"))["courses"] == retakes);
+
+    // Copying the plan copies every attempt, and deleting the copy leaves the original.
+    int mainId = body(alice->Get("/api/me/plan"))["planId"];
+    auto copy = alice->Post("/api/me/plans", json{{"name", "Copy"}, {"copyFrom", mainId}}.dump(), "application/json");
+    CHECK(status(copy) == 201);
+    int copyId = body(copy)["planId"];
+    CHECK(body(alice->Get("/api/me/plans/" + std::to_string(copyId)))["courses"] == retakes);
+    CHECK(status(alice->Delete("/api/me/plans/" + std::to_string(copyId))) == 204);
+    CHECK(body(alice->Get("/api/me/plan"))["courses"] == retakes);
   }
 
   // A quarter can have at most 18 units, the same limit as the app.
@@ -649,6 +690,72 @@ int main() {
       CHECK(reqs[0]["programId"] == 1);
       CHECK(reqs.back()["units"] == 16);
     }
+    std::filesystem::remove(path);
+  }
+
+  // A database from before retakes: plan_course allowed each course once per plan and had
+  // no 'failed' status. It's rebuilt with every saved row kept, and retakes then save.
+  {
+    auto path = std::filesystem::temp_directory_path() / "degree_planner_before_retakes_test.db";
+    std::filesystem::remove(path);
+    {
+      Database fresh(path.string());  // today's tables, then plan_course swapped for the old one
+      fresh.seed(DEFAULT_DATA_DIR);
+      int studentId = fresh.createStudent("erin@scu.edu", auth::hashPassword("correct horse"), 2025);
+      fresh.savePlan(studentId, {{"CSCI 10", 0, "completed"}, {"MATH 11", 0, "planned"}});
+    }
+    sqlite3* old = nullptr;
+    sqlite3_open(path.string().c_str(), &old);
+    sqlite3_exec(old, R"sql(
+      CREATE TABLE plan_course_old (
+        plan_id   INTEGER NOT NULL REFERENCES degree_plan(plan_id) ON DELETE CASCADE,
+        course_id INTEGER NOT NULL REFERENCES course(course_id) ON DELETE CASCADE,
+        quarter   INTEGER NOT NULL CHECK (quarter BETWEEN 0 AND 11),
+        status    TEXT NOT NULL CHECK (status IN ('planned', 'completed')),
+        position  INTEGER NOT NULL,
+        PRIMARY KEY (plan_id, course_id));
+      INSERT INTO plan_course_old SELECT plan_id, course_id, quarter, status, position FROM plan_course;
+      DROP TABLE plan_course;
+      ALTER TABLE plan_course_old RENAME TO plan_course;
+    )sql", nullptr, nullptr, nullptr);
+    sqlite3_close(old);
+    {
+      Database migrated(path.string());
+      migrated.seed(DEFAULT_DATA_DIR);
+      auto login = migrated.findStudentByEmail("erin@scu.edu");
+      CHECK(login.has_value());
+      auto plan = migrated.plan(login->studentId);
+      CHECK(plan && (*plan)["courses"] == json::parse(R"([
+        {"code": "CSCI 10", "quarter": 0, "status": "completed"},
+        {"code": "MATH 11", "quarter": 0, "status": "planned"}
+      ])"));
+      migrated.savePlan(login->studentId, {{"MATH 11", 0, "failed"}, {"MATH 11", 1, "planned"}});
+      plan = migrated.plan(login->studentId);
+      CHECK(plan && (*plan)["courses"].size() == 2);
+
+      // The rebuilt table still deletes a plan's courses with the plan.
+      json copy = migrated.createPlan(login->studentId, "Copy", std::nullopt, (*plan)["planId"].get<int>());
+      migrated.deletePlan(login->studentId, copy["planId"].get<int>());
+    }
+    auto count = [&](const char* sql) {
+      sqlite3* db = nullptr;
+      sqlite3_open(path.string().c_str(), &db);
+      sqlite3_stmt* stmt = nullptr;
+      sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+      int n = sqlite3_step(stmt) == SQLITE_ROW ? sqlite3_column_int(stmt, 0) : -1;
+      sqlite3_finalize(stmt);
+      sqlite3_close(db);
+      return n;
+    };
+    CHECK(count("SELECT COUNT(*) FROM plan_course") == 2);  // only the main plan's rows are left
+    CHECK(count("SELECT COUNT(*) FROM pragma_foreign_key_list('plan_course') WHERE on_delete = 'CASCADE'") == 2);
+    {
+      Database again(path.string());  // a second start doesn't rebuild or lose anything
+      auto login = again.findStudentByEmail("erin@scu.edu");
+      auto plan = again.plan(login->studentId);
+      CHECK(plan && (*plan)["courses"].size() == 2);
+    }
+    CHECK(count("SELECT COUNT(*) FROM pragma_table_info('plan_course') WHERE pk > 0") == 3);
     std::filesystem::remove(path);
   }
 

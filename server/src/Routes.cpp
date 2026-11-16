@@ -148,8 +148,8 @@ std::vector<PlanRow> parsePlanBody(const std::string& body) {
     auto quarter = c["quarter"].get<std::int64_t>();
     if (quarter < 0 || quarter > 11) throw BadRequest("\"quarter\" must be 0 to 11");
     PlanRow row{c["code"], static_cast<int>(quarter), c["status"]};
-    if (row.status != "planned" && row.status != "completed") {
-      throw BadRequest("\"status\" must be \"planned\" or \"completed\"");
+    if (row.status != "planned" && row.status != "completed" && row.status != "failed") {
+      throw BadRequest("\"status\" must be \"planned\", \"completed\" or \"failed\"");
     }
     rows.push_back(row);
   }
