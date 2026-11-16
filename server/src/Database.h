@@ -109,6 +109,7 @@ class Database {
 
   void createProgramTable();
   void addPlanColumns();
+  void neverReusePlanIds();
   // Callers must hold mutex_.
   bool ownsPlan(int studentId, int planId);
   nlohmann::json planSummary(int planId);

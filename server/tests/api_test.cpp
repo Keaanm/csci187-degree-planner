@@ -802,6 +802,75 @@ int main() {
     std::filesystem::remove(path);
   }
 
+  // A deleted plan's id is never given to a new plan, even when it was the newest (#22).
+  // A database from before AUTOINCREMENT is rebuilt with every plan, id and course kept.
+  {
+    auto path = std::filesystem::temp_directory_path() / "degree_planner_plan_ids_test.db";
+    std::filesystem::remove(path);
+    int studentId;
+    int mainId;
+    {
+      Database fresh(path.string());
+      fresh.seed(DEFAULT_DATA_DIR);
+      studentId = fresh.createStudent("ivy@scu.edu", auth::hashPassword("correct horse"), 2025);
+      mainId = fresh.plans(studentId)[0]["planId"].get<int>();
+      int newest = fresh.createPlan(studentId, "Abroad", std::nullopt, std::nullopt)["planId"].get<int>();
+      fresh.deletePlan(studentId, newest);
+      int next = fresh.createPlan(studentId, "Fresh", std::nullopt, std::nullopt)["planId"].get<int>();
+      CHECK(next > newest);
+      fresh.deletePlan(studentId, next);
+      fresh.savePlan(studentId, {{"CSCI 10", 0, "completed"}, {"MATH 11", 1, "planned"}});
+    }
+    sqlite3* old = nullptr;
+    sqlite3_open(path.string().c_str(), &old);
+    // The table as it was before AUTOINCREMENT, with the same rows.
+    sqlite3_exec(old, R"sql(
+      PRAGMA foreign_keys = OFF;
+      CREATE TABLE degree_plan_old (
+        plan_id    INTEGER PRIMARY KEY,
+        student_id INTEGER NOT NULL REFERENCES student(student_id) ON DELETE CASCADE,
+        last_saved TEXT NOT NULL,
+        name       TEXT NOT NULL DEFAULT 'Main plan',
+        program_id INTEGER REFERENCES program(program_id) ON DELETE SET NULL);
+      INSERT INTO degree_plan_old SELECT plan_id, student_id, last_saved, name, program_id FROM degree_plan;
+      DROP TABLE degree_plan;
+      ALTER TABLE degree_plan_old RENAME TO degree_plan;
+    )sql", nullptr, nullptr, nullptr);
+    sqlite3_close(old);
+    auto count = [&](const char* sql) {
+      sqlite3* db = nullptr;
+      sqlite3_open(path.string().c_str(), &db);
+      sqlite3_stmt* stmt = nullptr;
+      sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+      int n = sqlite3_step(stmt) == SQLITE_ROW ? sqlite3_column_int(stmt, 0) : -1;
+      sqlite3_finalize(stmt);
+      sqlite3_close(db);
+      return n;
+    };
+    CHECK(count("SELECT COUNT(*) FROM sqlite_master WHERE name = 'degree_plan' AND sql LIKE '%AUTOINCREMENT%'") == 0);
+    {
+      Database migrated(path.string());
+      migrated.seed(DEFAULT_DATA_DIR);
+      json plans = migrated.plans(studentId);
+      CHECK(plans.size() == 1);
+      CHECK(plans[0]["planId"] == mainId);
+      CHECK(migrated.plan(studentId) && (*migrated.plan(studentId))["courses"].size() == 2);
+      int copy = migrated.createPlan(studentId, "Copy", std::nullopt, mainId)["planId"].get<int>();
+      migrated.deletePlan(studentId, copy);  // still deletes the copy's courses
+      int next = migrated.createPlan(studentId, "Next", std::nullopt, std::nullopt)["planId"].get<int>();
+      CHECK(next > copy);
+    }
+    CHECK(count("SELECT COUNT(*) FROM sqlite_master WHERE name = 'degree_plan' AND sql LIKE '%AUTOINCREMENT%'") == 1);
+    CHECK(count("SELECT COUNT(*) FROM plan_course") == 2);
+    CHECK(count("SELECT COUNT(*) FROM pragma_foreign_key_list('plan_course') WHERE \"table\" = 'degree_plan'") == 1);
+    {
+      Database again(path.string());  // a second start keeps everything
+      CHECK(again.plans(studentId).size() == 2);
+      CHECK((*again.plan(studentId))["courses"].size() == 2);
+    }
+    std::filesystem::remove(path);
+  }
+
   if (failures == 0) std::cout << "All API tests passed\n";
   return failures == 0 ? 0 : 1;
 }

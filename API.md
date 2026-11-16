@@ -250,6 +250,7 @@ Differences from the ER diagram, in `server/src/Database.cpp`:
 - `expires_at` on `session` is Unix time in seconds. Expired sessions are deleted the next time anyone logs in or signs up.
 - `GET` and `PUT /api/me/plan` use the student's first plan (the oldest).
 - `degree_plan` also has `name` and `program_id` (the emphasis, or NULL). They were added with `ALTER TABLE`, so plans saved before them are kept and named "Main plan".
+- `degree_plan.plan_id` is `AUTOINCREMENT`, so a deleted plan's id is never reused. A browser that still has a deleted plan open can't save over a newer plan. Older databases are rebuilt on start, keeping every plan, its id and its courses.
 - Plans saved before accounts existed had no owner, so the server drops them the first time it starts with the new tables.
 - `PUT` also returns **400** for a course that isn't offered, a quarter over 18 units, a course listed twice in the same quarter, or a course listed more than once where an earlier attempt isn't `"failed"`. Rows can be in any order. A failed course still counts toward its quarter's 18 units.
 - Before retakes, `plan_course` was keyed by (`plan_id, course_id`) and had no `"failed"` status. The server rebuilds an old table on start with a copy, keeping every saved row.
