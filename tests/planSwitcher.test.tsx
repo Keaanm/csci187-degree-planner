@@ -1,14 +1,15 @@
 // Keaan Mirchandani
 // Tests switching between several plans, and making, copying, renaming and deleting them.
 // @vitest-environment jsdom
-import { Suspense } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, Suspense } from 'react';
+import { focusManager, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import PlansProvider from '../src/components/PlansProvider';
 import PlanSwitcher from '../src/components/PlanSwitcher';
 import SaveStatus from '../src/components/SaveStatus';
 import { usePlan } from '../src/PlanContext';
+import { createQueryClient } from '../src/queries';
 import { ACCOUNT, fakeBackend } from './fakeBackend';
 
 const DELAY = 100;
@@ -34,7 +35,7 @@ function Loading() {
 }
 
 function renderSwitcher() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = createQueryClient({ retry: 0 });  // the app's, so a 404 reloads the plan list
   render(
     <QueryClientProvider client={client}>
       <Suspense fallback={<Loading />}>
@@ -252,6 +253,49 @@ describe('a new plan that gets a deleted plan\'s id (#22)', () => {
     click('Add CSCI 60');
     await screen.findByText(/^Saved /, {}, { timeout: 2000 });
     expect(backend.plans()[1].courses).toEqual([CSCI_10, { code: 'CSCI 60', quarter: 1, status: 'planned' }]);
+  });
+});
+
+describe('plans changed in another tab', () => {
+  it('shows plans made and deleted in another tab when the window comes back into focus', async () => {
+    const backend = fakeBackend({ extraPlans: [{ name: 'Abroad' }] });
+    renderSwitcher();
+    expect(await optionNames()).toEqual(['Main plan', 'Abroad']);
+    backend.plans().splice(1, 1, { planId: 9, name: 'Made elsewhere', programId: null, lastSaved: null, courses: [] });
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await waitFor(async () => expect(await optionNames()).toEqual(['Main plan', 'Made elsewhere']));
+    focusManager.setFocused(undefined);
+  });
+
+  it('opens the oldest plan when the open one was deleted in another tab, instead of failing every save', async () => {
+    const backend = fakeBackend({ saved: { lastSaved: '2026-11-01T18:00:00.000Z', courses: [CSCI_10] }, extraPlans: [{ name: 'Abroad', courses: [MATH_11] }] });
+    renderSwitcher();
+    await openPlan('Abroad');
+    await courses('MATH 11');
+    backend.plans().splice(1, 1);  // deleted in another tab
+    click('Add CSCI 60');
+    expect(await courses('CSCI 10')).toBeTruthy();
+    expect(await optionNames()).toEqual(['Main plan']);
+    expect(backend.plans()[0].courses).toEqual([CSCI_10]);
+  });
+});
+
+describe('plan names', () => {
+  it('counts an emoji as one character, like the server', async () => {
+    const backend = fakeBackend();
+    renderSwitcher();
+    await picker();
+    click('Rename');
+    const name = within(await dialog()).getByLabelText('Name');
+    fireEvent.change(name, { target: { value: '🎓'.repeat(61) } });
+    click('Rename', await dialog());
+    expect(await screen.findByText('Use at most 60 characters')).toBeTruthy();
+    fireEvent.change(name, { target: { value: '🎓'.repeat(60) } });
+    click('Rename', await dialog());
+    await waitFor(() => expect(backend.plans()[0].name).toBe('🎓'.repeat(60)));
   });
 });
 

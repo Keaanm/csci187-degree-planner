@@ -115,7 +115,8 @@ export default function PlanSwitcher() {
   );
 }
 
-// The name as the server checks it: trimmed, 1 to 60 characters.
+// The name as the server checks it: trimmed, 1 to 60 characters (code points, so an emoji
+// counts as one). The inputs have no maxLength, which would count UTF-16 units instead.
 function nameProblem(name: string): string | null {
   const trimmed = name.trim();
   if (!trimmed) return 'Give the plan a name';
@@ -180,7 +181,6 @@ function NewPlanDialog({ copyable, onClose, onCreated }: {
           <Field label="Name">
             <Input
               value={name}
-              maxLength={MAX_PLAN_NAME_LENGTH}
               placeholder="What if I study abroad"
               aria-invalid={touched && !!problem}
               onChange={(e) => setName(e.target.value)}
@@ -257,7 +257,6 @@ function RenameDialog({ planId, name: oldName, onClose }: { planId: number; name
           <Field label="Name">
             <Input
               value={name}
-              maxLength={MAX_PLAN_NAME_LENGTH}
               aria-invalid={touched && !!problem}
               onChange={(e) => setName(e.target.value)}
               autoFocus

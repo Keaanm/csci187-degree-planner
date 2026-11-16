@@ -53,10 +53,19 @@ export function createQueryClient(options: { retry?: number } = {}) {
       // Data only changes when this app saves it, so it never goes stale.
       queries: { staleTime: Infinity, retry: (failures, error) => !isLoggedOut(error) && failures < (options.retry ?? 1) },
     },
-    queryCache: new QueryCache({ onError: (error) => endSessionIf401(client, error) }),
-    mutationCache: new MutationCache({ onError: (error) => endSessionIf401(client, error) }),
+    queryCache: new QueryCache({ onError: (error) => onApiError(client, error) }),
+    mutationCache: new MutationCache({ onError: (error) => onApiError(client, error) }),
   });
   return client;
+}
+
+function onApiError(client: QueryClient, error: unknown) {
+  endSessionIf401(client, error);
+  // A 404 means a plan was deleted in another tab. Reloading the list drops it, and the
+  // oldest plan opens instead of every save failing.
+  if (error instanceof ApiError && error.status === 404) {
+    void client.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'plan' && q.queryKey[2] === 'list' });
+  }
 }
 
 function isLoggedOut(error: unknown) {
@@ -130,7 +139,10 @@ export function useCatalog() {
 // The student's plans, oldest first. Never empty.
 export function usePlanList() {
   const student = useMe();
-  return useSuspenseQuery({ queryKey: planListKey(student), queryFn: () => fetchPlans() }).data;
+  // Refetched when the window comes back into focus, so plans made, renamed or deleted in
+  // another tab show up here.
+  return useSuspenseQuery({ queryKey: planListKey(student), queryFn: () => fetchPlans(), refetchOnWindowFocus: 'always' })
+    .data;
 }
 
 // Changes one plan in the list, or removes it when `change` returns null.
