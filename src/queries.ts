@@ -9,9 +9,24 @@ import {
   useQueryClient,
   useSuspenseQuery,
 } from '@tanstack/react-query';
-import { ApiError, fetchCourses, fetchMe, fetchPlan, fetchRequirements, logIn, logOut, savePlan, signUp } from './api';
-import type { LoadedPlan, SignUp, Student } from './api';
+import {
+  ApiError,
+  createPlan,
+  deletePlan,
+  fetchCourses,
+  fetchMe,
+  fetchPlan,
+  fetchPlans,
+  fetchRequirements,
+  logIn,
+  logOut,
+  renamePlan,
+  savePlan,
+  signUp,
+} from './api';
+import type { LoadedPlan, PlanInfo, SignUp, Student } from './api';
 import { Catalog } from './Catalog';
+import type { Course } from './Course';
 import type { DegreePlan } from './DegreePlan';
 
 // Loading and errors are handled by <Suspense> and <ErrorBoundary> in App.
@@ -23,8 +38,12 @@ const sessionEndKey = ['sessionEnd'];
 export type SessionEnd = 'loggedOut' | 'expired' | null;
 const coursesQuery = queryOptions({ queryKey: ['courses'], queryFn: () => fetchCourses() });
 const requirementsQuery = queryOptions({ queryKey: ['requirements'], queryFn: () => fetchRequirements() });
-// Keyed by student, so logging in as someone else never shows the last student's plan.
-const planKey = (student: Student | null) => ['plan', student?.email ?? null];
+// Keyed by student, so logging in as someone else never shows the last student's plans.
+// Every key starts with 'plan', so ending a session removes them all.
+const planListKey = (student: Student | null) => ['plan', student?.email ?? null, 'list'];
+const planKey = (student: Student | null, planId: number) => ['plan', student?.email ?? null, planId];
+const planQuery = (student: Student | null, planId: number, courses: readonly Course[]) =>
+  queryOptions({ queryKey: planKey(student, planId), queryFn: () => fetchPlan(planId, courses) });
 
 // A 401 from any route means the session ended (it expired, or the student logged out in
 // another tab), so the app goes back to the login page.
@@ -34,10 +53,19 @@ export function createQueryClient(options: { retry?: number } = {}) {
       // Data only changes when this app saves it, so it never goes stale.
       queries: { staleTime: Infinity, retry: (failures, error) => !isLoggedOut(error) && failures < (options.retry ?? 1) },
     },
-    queryCache: new QueryCache({ onError: (error) => endSessionIf401(client, error) }),
-    mutationCache: new MutationCache({ onError: (error) => endSessionIf401(client, error) }),
+    queryCache: new QueryCache({ onError: (error) => onApiError(client, error) }),
+    mutationCache: new MutationCache({ onError: (error) => onApiError(client, error) }),
   });
   return client;
+}
+
+function onApiError(client: QueryClient, error: unknown) {
+  endSessionIf401(client, error);
+  // A 404 means a plan was deleted in another tab. Reloading the list drops it, and the
+  // oldest plan opens instead of every save failing.
+  if (error instanceof ApiError && error.status === 404) {
+    void client.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'plan' && q.queryKey[2] === 'list' });
+  }
 }
 
 function isLoggedOut(error: unknown) {
@@ -108,20 +136,85 @@ export function useCatalog() {
   return useMemo(() => new Catalog(courses, requirements), [courses, requirements]);
 }
 
-// The plan only accepts courses the server offers, so it loads after the courses.
-export function useSavedPlan() {
-  const courses = useCourses();
+// The student's plans, oldest first. Never empty.
+export function usePlanList() {
   const student = useMe();
-  return useSuspenseQuery({ queryKey: planKey(student), queryFn: () => fetchPlan(courses) }).data;
+  // Refetched when the window comes back into focus, so plans made, renamed or deleted in
+  // another tab show up here.
+  return useSuspenseQuery({ queryKey: planListKey(student), queryFn: () => fetchPlans(), refetchOnWindowFocus: 'always' })
+    .data;
 }
 
-export function useSavePlan() {
+// Changes one plan in the list, or removes it when `change` returns null.
+function useUpdatePlanList() {
+  const queryClient = useQueryClient();
+  const student = useMe();
+  return (planId: number, change: (plan: PlanInfo) => PlanInfo | null) =>
+    queryClient.setQueryData<PlanInfo[]>(planListKey(student), (plans) =>
+      plans?.flatMap((p) => {
+        if (p.planId !== planId) return [p];
+        const changed = change(p);
+        return changed ? [changed] : [];
+      }),
+    );
+}
+
+// The plan only accepts courses the server offers, so it loads after the courses.
+export function useSavedPlan(planId: number) {
+  const courses = useCourses();
+  const student = useMe();
+  return useSuspenseQuery(planQuery(student, planId, courses)).data;
+}
+
+export function useSavePlan(planId: number) {
+  const queryClient = useQueryClient();
+  const student = useMe();
+  const updatePlanList = useUpdatePlanList();
+  return useMutation({
+    mutationFn: (plan: DegreePlan) => savePlan(planId, plan),
+    onSuccess: (lastSaved, plan) => {
+      queryClient.setQueryData<LoadedPlan>(planKey(student, planId), { plan, lastSaved });
+      updatePlanList(planId, (p) => ({ ...p, lastSaved }));
+    },
+  });
+}
+
+export function useCreatePlan() {
   const queryClient = useQueryClient();
   const student = useMe();
   return useMutation({
-    mutationFn: (plan: DegreePlan) => savePlan(plan),
-    onSuccess: (lastSaved, plan) => {
-      queryClient.setQueryData<LoadedPlan>(planKey(student), { plan, lastSaved });
+    mutationFn: (details: { name: string; copyFrom?: number }) => createPlan(details),
+    onSuccess: (created) => {
+      // The server can give a new plan the id of a plan deleted earlier, whose courses are
+      // still cached. Dropping them makes the new plan load its own (#22).
+      queryClient.removeQueries({ queryKey: planKey(student, created.planId), exact: true });
+      queryClient.setQueryData<PlanInfo[]>(planListKey(student), (plans) => [...(plans ?? []), created]);
     },
+  });
+}
+
+export function useRenamePlan() {
+  const updatePlanList = useUpdatePlanList();
+  return useMutation({
+    mutationFn: ({ planId, name }: { planId: number; name: string }) => renamePlan(planId, name),
+    onSuccess: (renamed) => updatePlanList(renamed.planId, () => renamed),
+  });
+}
+
+// The deleted plan's courses stay cached: removing them while the plan is still on screen
+// would refetch it and get a 404. useCreatePlan drops them if the id is reused.
+// Deletes a plan and opens `next` instead. `next` is loaded before the plan is deleted, so
+// the page goes straight from one plan to the other instead of showing "Loading…".
+export function useDeletePlan() {
+  const queryClient = useQueryClient();
+  const student = useMe();
+  const courses = useCourses();
+  const updatePlanList = useUpdatePlanList();
+  return useMutation({
+    mutationFn: async ({ planId, next }: { planId: number; next: number }) => {
+      await queryClient.ensureQueryData(planQuery(student, next, courses));
+      await deletePlan(planId);
+    },
+    onSuccess: (_, { planId }) => updatePlanList(planId, () => null),
   });
 }

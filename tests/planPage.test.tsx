@@ -6,9 +6,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import PlanProvider from '../src/components/PlanProvider';
+import PlansProvider from '../src/components/PlansProvider';
 import PlanPage from '../src/pages/PlanPage';
-import { fakeBackend } from './fakeBackend';
+import { ACCOUNT, fakeBackend } from './fakeBackend';
 import type { SavedPlan } from './fakeBackend';
 
 function renderPage(saved?: SavedPlan) {
@@ -18,9 +18,9 @@ function renderPage(saved?: SavedPlan) {
     <QueryClientProvider client={client}>
       <MemoryRouter>
         <Suspense fallback={<p>Loading…</p>}>
-          <PlanProvider>
+          <PlansProvider student={ACCOUNT}>
             <PlanPage />
-          </PlanProvider>
+          </PlansProvider>
         </Suspense>
       </MemoryRouter>
     </QueryClientProvider>,

@@ -6,15 +6,16 @@ import { useSavePlan, useSavedPlan } from '@/queries';
 
 export const AUTOSAVE_DELAY_MS = 1000;
 
-// Edits stay in a draft until they are saved automatically, once the student stops
-// editing for `autosaveDelay` ms.
-export default function PlanProvider({ children, autosaveDelay = AUTOSAVE_DELAY_MS }: {
+// One plan's courses. Edits stay in a draft until they are saved automatically, once the
+// student stops editing for `autosaveDelay` ms.
+export default function PlanProvider({ planId, children, autosaveDelay = AUTOSAVE_DELAY_MS }: {
+  planId: number;
   children: ReactNode;
   autosaveDelay?: number;
 }) {
-  const { plan: savedPlan, lastSaved } = useSavedPlan();
+  const { plan: savedPlan, lastSaved } = useSavedPlan(planId);
   const [draft, setDraft] = useState<DegreePlan | null>(null);
-  const { mutate, isPending, isError, variables, error } = useSavePlan();
+  const { mutate, isPending, isError, variables, error } = useSavePlan(planId);
   const plan = draft ?? savedPlan;
   // Undoing every edit counts as saved.
   const saved = draft === null || draft.sameAs(savedPlan);
