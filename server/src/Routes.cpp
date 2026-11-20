@@ -273,28 +273,6 @@ void registerRoutes(httplib::Server& server, Database& db) {
     sendJson(res, *student);
   });
 
-  // The logged-in student's plan. There's no plan id in the URL, so a student can only
-  // ever reach their own plan.
-  server.Get("/api/me/plan", [&db](const httplib::Request& req, httplib::Response& res) {
-    int studentId;
-    if (!currentStudent(db, req, res, studentId)) return;
-    auto plan = db.plan(studentId);
-    if (!plan) return sendError(res, 404, "Plan not found");
-    sendJson(res, *plan);
-  });
-
-  server.Put("/api/me/plan", [&db](const httplib::Request& req, httplib::Response& res) {
-    int studentId;
-    if (!currentStudent(db, req, res, studentId)) return;
-    try {
-      requireJson(req);
-      SavedPlan saved = db.savePlan(studentId, parsePlanBody(req.body));
-      sendJson(res, {{"planId", saved.planId}, {"lastSaved", saved.lastSaved}});
-    } catch (const BadRequest& e) {
-      sendError(res, 400, e.what());
-    }
-  });
-
   // ---- Several plans ----
   // Every route needs a login. A plan id that isn't one of the student's plans is a 404,
   // so a student can't find out which plan ids exist.
@@ -363,7 +341,7 @@ void registerRoutes(httplib::Server& server, Database& db) {
     }
   });
 
-  // Load and save one plan, with the same bodies as GET and PUT /api/me/plan.
+  // Load and save one plan.
   server.Get(R"(/api/me/plans/(\d+))", [&db](const httplib::Request& req, httplib::Response& res) {
     int studentId;
     if (!currentStudent(db, req, res, studentId)) return;
@@ -382,7 +360,7 @@ void registerRoutes(httplib::Server& server, Database& db) {
     try {
       int planId = planIdFrom(req);
       requireJson(req);
-      SavedPlan saved = db.savePlan(studentId, parsePlanBody(req.body), planId);
+      SavedPlan saved = db.savePlan(studentId, planId, parsePlanBody(req.body));
       sendJson(res, {{"planId", saved.planId}, {"lastSaved", saved.lastSaved}});
     } catch (const BadRequest& e) {
       sendError(res, 400, e.what());

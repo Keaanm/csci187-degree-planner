@@ -256,8 +256,7 @@ void Database::createTables() {
       position       INTEGER NOT NULL,
       PRIMARY KEY (course_id, requirement_id)
     );
-    -- Not UNIQUE on student_id: the final ER diagram lets a student own several plans.
-    -- For now the API only uses each student's first plan (see Database::plan).
+    -- Not UNIQUE on student_id: a student can own several plans.
     -- AUTOINCREMENT so a deleted plan's id is never given to a new plan (see
     -- neverReusePlanIds).
     CREATE TABLE IF NOT EXISTS degree_plan (
@@ -496,20 +495,6 @@ json Database::programs() {
   return result;
 }
 
-std::optional<int> Database::firstPlanId(int studentId) {
-  Statement find(db_, "SELECT plan_id FROM degree_plan WHERE student_id = ? ORDER BY plan_id LIMIT 1");
-  find.bind(1, studentId);
-  if (!find.step()) return std::nullopt;
-  return find.intAt(0);
-}
-
-std::optional<json> Database::plan(int studentId) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  auto planId = firstPlanId(studentId);
-  if (!planId) return std::nullopt;
-  return planWithCourses(*planId);
-}
-
 std::optional<json> Database::planById(int studentId, int planId) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!ownsPlan(studentId, planId)) return std::nullopt;
@@ -631,7 +616,7 @@ void Database::deletePlan(int studentId, int planId) {
   remove.run();
 }
 
-SavedPlan Database::savePlan(int studentId, const std::vector<PlanRow>& rows, std::optional<int> targetPlan) {
+SavedPlan Database::savePlan(int studentId, int planId, const std::vector<PlanRow>& rows) {
   std::lock_guard<std::mutex> lock(mutex_);
 
   // Check every row before writing anything.
@@ -667,22 +652,12 @@ SavedPlan Database::savePlan(int studentId, const std::vector<PlanRow>& rows, st
   }
 
   std::string lastSaved = nowIso();
-  int planId;
   exec("BEGIN");
   try {
-    // The plan asked for, or else the student's first plan, created on their first save.
-    if (targetPlan && !ownsPlan(studentId, *targetPlan)) throw NotFound("Plan not found");
-    if (auto existing = targetPlan ? targetPlan : firstPlanId(studentId)) {
-      planId = *existing;
-      Statement touch(db_, "UPDATE degree_plan SET last_saved = ? WHERE plan_id = ?");
-      touch.bind(1, lastSaved).bind(2, planId);
-      touch.run();
-    } else {
-      Statement create(db_, "INSERT INTO degree_plan (student_id, last_saved) VALUES (?, ?)");
-      create.bind(1, studentId).bind(2, lastSaved);
-      create.run();
-      planId = static_cast<int>(sqlite3_last_insert_rowid(db_));
-    }
+    if (!ownsPlan(studentId, planId)) throw NotFound("Plan not found");
+    Statement touch(db_, "UPDATE degree_plan SET last_saved = ? WHERE plan_id = ?");
+    touch.bind(1, lastSaved).bind(2, planId);
+    touch.run();
 
     Statement clear(db_, "DELETE FROM plan_course WHERE plan_id = ?");
     clear.bind(1, planId);

@@ -67,11 +67,8 @@ class Database {
   nlohmann::json requirements();
   // Every program (the major, its emphases, the University Core), by id.
   nlohmann::json programs();
-  // The student's plan, or std::nullopt if they have never saved one.
-  std::optional<nlohmann::json> plan(int studentId);
-  // Replaces every course in the student's plan, creating the plan on the first save.
-  // With targetPlan, saves that plan instead, and throws NotFound if it isn't the student's.
-  SavedPlan savePlan(int studentId, const std::vector<PlanRow>& rows, std::optional<int> targetPlan = std::nullopt);
+  // Replaces every course in one of the student's plans. Throws NotFound if it isn't theirs.
+  SavedPlan savePlan(int studentId, int planId, const std::vector<PlanRow>& rows);
 
   // Several plans. Every method throws NotFound for a plan id that isn't the student's,
   // and BadRequest for a program id that isn't an emphasis.
@@ -83,7 +80,7 @@ class Database {
   nlohmann::json updatePlan(int studentId, int planId, const PlanChanges& changes);
   // Throws BadRequest for the student's only plan.
   void deletePlan(int studentId, int planId);
-  // { planId, lastSaved, courses }, like plan(), or std::nullopt if it isn't the student's.
+  // { planId, lastSaved, courses }, or std::nullopt if it isn't the student's.
   std::optional<nlohmann::json> planById(int studentId, int planId);
 
   // email should already be trimmed and lowercased. Throws EmailTaken. Returns the new id.
@@ -104,8 +101,6 @@ class Database {
   void createTables();
   void createPlanCourse(const std::string& table);
   bool hasColumn(const std::string& table, const std::string& column);
-  // Callers must hold mutex_.
-  std::optional<int> firstPlanId(int studentId);
 
   void createProgramTable();
   void addPlanColumns();

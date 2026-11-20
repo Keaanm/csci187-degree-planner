@@ -23,6 +23,15 @@ static int failures = 0;
     }                                                                        \
   } while (0)
 
+// The student's first plan (the "Main plan" sign-up made), for tests that use Database directly.
+static int firstPlanId(Database& db, int studentId) {
+  json plans = db.plans(studentId);
+  return plans.empty() ? 0 : plans[0]["planId"].get<int>();
+}
+static std::optional<json> firstPlan(Database& db, int studentId) {
+  return db.planById(studentId, firstPlanId(db, studentId));
+}
+
 int main() {
   auth::init();
   Database db(":memory:");
@@ -222,11 +231,9 @@ int main() {
     CHECK(status(client.Get("/api/me", {{"Cookie", sessionCookie(again)}})) == 200);
   }
 
-  // Without a valid session, /api/me and the plan routes are 401s.
+  // Without a valid session, /api/me is a 401 (the plan routes are checked below).
   {
     CHECK(status(client.Get("/api/me")) == 401);
-    CHECK(status(client.Get("/api/me/plan")) == 401);
-    CHECK(status(client.Put("/api/me/plan", R"({"courses": []})", "application/json")) == 401);
     CHECK(status(client.Get("/api/me", {{"Cookie", "session=not-a-real-token"}})) == 401);
     CHECK(status(client.Get("/api/me", {{"Cookie", "session="}})) == 401);
   }
@@ -237,7 +244,7 @@ int main() {
     std::string token = auth::newSessionToken();
     db.createSession(token, studentId, -1);
     CHECK(status(client.Get("/api/me", {{"Cookie", "session=" + token}})) == 401);
-    CHECK(status(client.Get("/api/me/plan", {{"Cookie", "session=" + token}})) == 401);
+    CHECK(status(client.Get("/api/me/plans", {{"Cookie", "session=" + token}})) == 401);
 
     // The cookie is found among other cookies.
     std::string fresh = auth::newSessionToken();
@@ -264,24 +271,37 @@ int main() {
   // ---- My plan ----
 
   auto alice = newStudent("alice@scu.edu");
+  // The URL of a student's first plan, the "Main plan" sign-up made.
+  auto mainPlanUrl = [&](httplib::Client& c) {
+    json plans = body(c.Get("/api/me/plans"));
+    int id = plans.empty() ? 0 : plans[0].value("planId", 0);
+    return "/api/me/plans/" + std::to_string(id);
+  };
+  const std::string alicePlan = mainPlanUrl(*alice);
   auto put = [&](const std::string& path, const std::string& body) {
     return alice->Put(path, body, "application/json");
   };
 
   // Sign-up makes an empty "Main plan" with no emphasis, so there's always a plan.
   {
-    json plan = body(alice->Get("/api/me/plan"));
-    CHECK(plan["courses"].empty());
     json plans = body(alice->Get("/api/me/plans"));
     CHECK(plans.size() == 1);
     CHECK(plans[0]["name"] == "Main plan");
     CHECK(plans[0]["programId"].is_null());
+    json plan = body(alice->Get(alicePlan));
+    CHECK(plan["courses"].empty());
     CHECK(plans[0]["planId"] == plan["planId"]);
+  }
+
+  // The old route without a plan id is gone; the frontend uses /api/me/plans/:planId.
+  {
+    CHECK(status(alice->Get("/api/me/plan")) == 404);
+    CHECK(status(put("/api/me/plan", R"({"courses": []})")) == 404);
   }
 
   // PUT then GET returns the courses in the order they were added within each quarter.
   {
-    auto res = put("/api/me/plan", R"({"courses": [
+    auto res = put(alicePlan, R"({"courses": [
       {"code": "CSCI 60", "quarter": 1, "status": "planned"},
       {"code": "CSCI 10", "quarter": 0, "status": "completed"},
       {"code": "MATH 11", "quarter": 0, "status": "planned"}
@@ -291,7 +311,7 @@ int main() {
     CHECK(saved["planId"].is_number_integer());
     CHECK(saved["lastSaved"].is_string());
 
-    auto got = alice->Get("/api/me/plan");
+    auto got = alice->Get(alicePlan);
     CHECK(status(got) == 200);
     json plan = body(got);
     CHECK(plan["lastSaved"] == saved["lastSaved"]);
@@ -304,18 +324,18 @@ int main() {
 
   // PUT replaces everything saved before.
   {
-    put("/api/me/plan", R"({"courses": [{"code": "CSCI 61", "quarter": 3, "status": "planned"}]})");
-    json plan = body(alice->Get("/api/me/plan"));
+    put(alicePlan, R"({"courses": [{"code": "CSCI 61", "quarter": 3, "status": "planned"}]})");
+    json plan = body(alice->Get(alicePlan));
     CHECK(plan["courses"].size() == 1);
     CHECK(plan["courses"][0]["code"] == "CSCI 61");
 
-    CHECK(status(put("/api/me/plan", R"({"courses": []})")) == 200);
-    CHECK(body(alice->Get("/api/me/plan"))["courses"].empty());
+    CHECK(status(put(alicePlan, R"({"courses": []})")) == 200);
+    CHECK(body(alice->Get(alicePlan))["courses"].empty());
   }
 
   // Bad bodies are 400s, and a rejected save doesn't change the plan.
   {
-    put("/api/me/plan", R"({"courses": [{"code": "CSCI 10", "quarter": 0, "status": "planned"}]})");
+    put(alicePlan, R"({"courses": [{"code": "CSCI 10", "quarter": 0, "status": "planned"}]})");
     const char* bad[] = {
         "not json",
         R"([])",
@@ -346,20 +366,20 @@ int main() {
                         {"code": "MATH 13", "quarter": 0, "status": "planned"}]})",
     };
     for (const char* bad_body : bad) {
-      auto res = put("/api/me/plan", bad_body);
+      auto res = put(alicePlan, bad_body);
       if (status(res) != 400) std::cerr << "Expected 400 for: " << bad_body << "\n";
       CHECK(status(res) == 400);
     }
     // A valid body that isn't sent as JSON.
-    CHECK(status(alice->Put("/api/me/plan", R"({"courses": []})", "text/plain")) == 400);
-    json plan = body(alice->Get("/api/me/plan"));
+    CHECK(status(alice->Put(alicePlan, R"({"courses": []})", "text/plain")) == 400);
+    json plan = body(alice->Get(alicePlan));
     CHECK(plan["courses"].size() == 1);
   }
 
   // A failed course can be retaken in a later quarter, more than once, and every attempt is
   // saved with its status. Rows can come in any order.
   {
-    auto res = put("/api/me/plan", R"({"courses": [
+    auto res = put(alicePlan, R"({"courses": [
       {"code": "CSCI 10", "quarter": 2, "status": "planned"},
       {"code": "CSCI 10", "quarter": 0, "status": "failed"},
       {"code": "CSCI 10", "quarter": 1, "status": "failed"}
@@ -370,21 +390,21 @@ int main() {
       {"code": "CSCI 10", "quarter": 1, "status": "failed"},
       {"code": "CSCI 10", "quarter": 2, "status": "planned"}
     ])");
-    CHECK(body(alice->Get("/api/me/plan"))["courses"] == retakes);
+    CHECK(body(alice->Get(alicePlan))["courses"] == retakes);
 
     // Copying the plan copies every attempt, and deleting the copy leaves the original.
-    int mainId = body(alice->Get("/api/me/plan"))["planId"];
+    int mainId = body(alice->Get(alicePlan))["planId"];
     auto copy = alice->Post("/api/me/plans", json{{"name", "Copy"}, {"copyFrom", mainId}}.dump(), "application/json");
     CHECK(status(copy) == 201);
     int copyId = body(copy)["planId"];
     CHECK(body(alice->Get("/api/me/plans/" + std::to_string(copyId)))["courses"] == retakes);
     CHECK(status(alice->Delete("/api/me/plans/" + std::to_string(copyId))) == 204);
-    CHECK(body(alice->Get("/api/me/plan"))["courses"] == retakes);
+    CHECK(body(alice->Get(alicePlan))["courses"] == retakes);
   }
 
   // A quarter can have at most 18 units, the same limit as the app.
   {
-    auto res = put("/api/me/plan", R"({"courses": [
+    auto res = put(alicePlan, R"({"courses": [
       {"code": "CSCI 10", "quarter": 0, "status": "planned"},
       {"code": "CSCI 60", "quarter": 0, "status": "planned"},
       {"code": "MATH 11", "quarter": 0, "status": "planned"},
@@ -393,7 +413,7 @@ int main() {
     ]})");
     CHECK(status(res) == 200);  // exactly 18 units in Year 1 Fall
 
-    res = put("/api/me/plan", R"({"courses": [
+    res = put(alicePlan, R"({"courses": [
       {"code": "CSCI 10", "quarter": 0, "status": "planned"},
       {"code": "CSCI 60", "quarter": 0, "status": "planned"},
       {"code": "MATH 11", "quarter": 0, "status": "planned"},
@@ -402,20 +422,23 @@ int main() {
     ]})");
     CHECK(status(res) == 400);
     CHECK(body(res)["error"] == "Year 1 Fall can't have more than 18 units");
-    CHECK(body(alice->Get("/api/me/plan"))["courses"].size() == 5);  // unchanged
+    CHECK(body(alice->Get(alicePlan))["courses"].size() == 5);  // unchanged
   }
 
   // One student can't see or change another's plan.
   {
     auto bob = newStudent("bob@scu.edu");
-    CHECK(body(bob->Get("/api/me/plan"))["courses"].empty());  // Bob gets his own empty plan, not Alice's
+    const std::string bobPlan = mainPlanUrl(*bob);
+    CHECK(bobPlan != alicePlan);
+    CHECK(body(bob->Get(bobPlan))["courses"].empty());  // Bob gets his own empty plan, not Alice's
+    CHECK(status(bob->Get(alicePlan)) == 404);
 
-    auto res = bob->Put("/api/me/plan", R"({"courses": [{"code": "CHEM 11", "quarter": 5, "status": "planned"}]})",
+    auto res = bob->Put(bobPlan, R"({"courses": [{"code": "CHEM 11", "quarter": 5, "status": "planned"}]})",
                         "application/json");
     CHECK(status(res) == 200);
-    CHECK(body(res)["planId"] != body(alice->Get("/api/me/plan"))["planId"]);
-    CHECK(body(bob->Get("/api/me/plan"))["courses"].size() == 1);
-    CHECK(body(alice->Get("/api/me/plan"))["courses"].size() == 5);  // Alice's plan is unchanged
+    CHECK(body(res)["planId"] != body(alice->Get(alicePlan))["planId"]);
+    CHECK(body(bob->Get(bobPlan))["courses"].size() == 1);
+    CHECK(body(alice->Get(alicePlan))["courses"].size() == 5);  // Alice's plan is unchanged
 
     // The old routes that took a plan id from the URL are gone.
     CHECK(status(bob->Get("/api/plans/1")) == 404);
@@ -441,8 +464,8 @@ int main() {
       return c.Patch(planUrl(id), b.dump(), "application/json");
     };
 
-    // Alice's plan from /api/me/plan is her first plan, named "Main plan" with no emphasis.
-    json mainPlan = body(alice->Get("/api/me/plan"));
+    // Alice's first plan is named "Main plan", with no emphasis.
+    json mainPlan = body(alice->Get(alicePlan));
     int mainId = mainPlan["planId"];
     auto list = alice->Get("/api/me/plans");
     CHECK(status(list) == 200);
@@ -450,8 +473,7 @@ int main() {
     CHECK(body(list)[0] == json({{"planId", mainId}, {"name", "Main plan"}, {"programId", nullptr},
                                  {"lastSaved", mainPlan["lastSaved"]}, {"shared", false}}));
 
-    // GET /api/me/plans/:planId has the same body as GET /api/me/plan.
-    CHECK(body(alice->Get(planUrl(mainId))) == mainPlan);
+    CHECK(mainPlan["courses"].size() == 5);
 
     // A "what if" copy: trimmed name, an emphasis, and the same courses as the plan it copies.
     auto created = postPlan(*alice, {{"name", "  What if I study abroad "}, {"programId", 2}, {"copyFrom", mainId}});
@@ -582,7 +604,7 @@ int main() {
   // Reseeding keeps saved plans.
   {
     db.seed(DEFAULT_DATA_DIR);
-    json plan = body(alice->Get("/api/me/plan"));
+    json plan = body(alice->Get(alicePlan));
     CHECK(plan["courses"].size() == 5);
   }
 
@@ -599,7 +621,7 @@ int main() {
       first.seed(DEFAULT_DATA_DIR);
       int studentId = first.createStudent("carol@scu.edu", auth::hashPassword("correct horse"), 2024);
       first.createSession("carols-token", studentId, 60);
-      first.savePlan(studentId, {{"CSCI 10", 0, "completed"}, {"CSCI 60", 1, "planned"}});
+      first.savePlan(studentId, firstPlanId(first, studentId), {{"CSCI 10", 0, "completed"}, {"CSCI 60", 1, "planned"}});
     }
     Database second(path.string());
     second.seed(DEFAULT_DATA_DIR);
@@ -607,7 +629,7 @@ int main() {
     auto login = second.findStudentByEmail("carol@scu.edu");
     CHECK(login && auth::verifyPassword("correct horse", login->passwordHash));
     CHECK(second.studentForSession("carols-token") == login->studentId);
-    auto plan = second.plan(login->studentId);
+    auto plan = firstPlan(second, login->studentId);
     CHECK(plan && (*plan)["courses"] == json::parse(R"([
       {"code": "CSCI 10", "quarter": 0, "status": "completed"},
       {"code": "CSCI 60", "quarter": 1, "status": "planned"}
@@ -635,7 +657,7 @@ int main() {
     {
       Database migrated(path.string());
       migrated.seed(DEFAULT_DATA_DIR);
-      migrated.savePlan(1, {{"CSCI 10", 0, "planned"}});
+      migrated.savePlan(1, firstPlanId(migrated, 1), {{"CSCI 10", 0, "planned"}});
       json plans = migrated.plans(1);
       CHECK(plans.size() == 1);
       CHECK(plans[0]["planId"] == 7);
@@ -670,10 +692,10 @@ int main() {
       migrated.seed(DEFAULT_DATA_DIR);
       int studentId = migrated.createStudent("dana@scu.edu", auth::hashPassword("correct horse"), 2025);
       // The ownerless plan was dropped, so her own new "Main plan" is empty.
-      auto own = migrated.plan(studentId);
+      auto own = firstPlan(migrated, studentId);
       CHECK(own && (*own)["courses"].empty());
-      migrated.savePlan(studentId, {{"CSCI 10", 0, "planned"}});
-      auto plan = migrated.plan(studentId);
+      migrated.savePlan(studentId, firstPlanId(migrated, studentId), {{"CSCI 10", 0, "planned"}});
+      auto plan = firstPlan(migrated, studentId);
       CHECK(plan && (*plan)["courses"].size() == 1);
     }
     std::filesystem::remove(path);
@@ -712,7 +734,7 @@ int main() {
       Database fresh(path.string());  // today's tables, then plan_course swapped for the old one
       fresh.seed(DEFAULT_DATA_DIR);
       int studentId = fresh.createStudent("erin@scu.edu", auth::hashPassword("correct horse"), 2025);
-      fresh.savePlan(studentId, {{"CSCI 10", 0, "completed"}, {"MATH 11", 0, "planned"}});
+      fresh.savePlan(studentId, firstPlanId(fresh, studentId), {{"CSCI 10", 0, "completed"}, {"MATH 11", 0, "planned"}});
     }
     sqlite3* old = nullptr;
     sqlite3_open(path.string().c_str(), &old);
@@ -734,13 +756,13 @@ int main() {
       migrated.seed(DEFAULT_DATA_DIR);
       auto login = migrated.findStudentByEmail("erin@scu.edu");
       CHECK(login.has_value());
-      auto plan = migrated.plan(login->studentId);
+      auto plan = firstPlan(migrated, login->studentId);
       CHECK(plan && (*plan)["courses"] == json::parse(R"([
         {"code": "CSCI 10", "quarter": 0, "status": "completed"},
         {"code": "MATH 11", "quarter": 0, "status": "planned"}
       ])"));
-      migrated.savePlan(login->studentId, {{"MATH 11", 0, "failed"}, {"MATH 11", 1, "planned"}});
-      plan = migrated.plan(login->studentId);
+      migrated.savePlan(login->studentId, firstPlanId(migrated, login->studentId), {{"MATH 11", 0, "failed"}, {"MATH 11", 1, "planned"}});
+      plan = firstPlan(migrated, login->studentId);
       CHECK(plan && (*plan)["courses"].size() == 2);
 
       // The rebuilt table still deletes a plan's courses with the plan.
@@ -762,7 +784,7 @@ int main() {
     {
       Database again(path.string());  // a second start doesn't rebuild or lose anything
       auto login = again.findStudentByEmail("erin@scu.edu");
-      auto plan = again.plan(login->studentId);
+      auto plan = firstPlan(again, login->studentId);
       CHECK(plan && (*plan)["courses"].size() == 2);
     }
     CHECK(count("SELECT COUNT(*) FROM pragma_table_info('plan_course') WHERE pk > 0") == 3);
@@ -819,7 +841,7 @@ int main() {
       int next = fresh.createPlan(studentId, "Fresh", std::nullopt, std::nullopt)["planId"].get<int>();
       CHECK(next > newest);
       fresh.deletePlan(studentId, next);
-      fresh.savePlan(studentId, {{"CSCI 10", 0, "completed"}, {"MATH 11", 1, "planned"}});
+      fresh.savePlan(studentId, firstPlanId(fresh, studentId), {{"CSCI 10", 0, "completed"}, {"MATH 11", 1, "planned"}});
     }
     sqlite3* old = nullptr;
     sqlite3_open(path.string().c_str(), &old);
@@ -854,7 +876,7 @@ int main() {
       json plans = migrated.plans(studentId);
       CHECK(plans.size() == 1);
       CHECK(plans[0]["planId"] == mainId);
-      CHECK(migrated.plan(studentId) && (*migrated.plan(studentId))["courses"].size() == 2);
+      CHECK(firstPlan(migrated, studentId) && (*firstPlan(migrated, studentId))["courses"].size() == 2);
       int copy = migrated.createPlan(studentId, "Copy", std::nullopt, mainId)["planId"].get<int>();
       migrated.deletePlan(studentId, copy);  // still deletes the copy's courses
       int next = migrated.createPlan(studentId, "Next", std::nullopt, std::nullopt)["planId"].get<int>();
@@ -866,7 +888,7 @@ int main() {
     {
       Database again(path.string());  // a second start keeps everything
       CHECK(again.plans(studentId).size() == 2);
-      CHECK((*again.plan(studentId))["courses"].size() == 2);
+      CHECK((*firstPlan(again, studentId))["courses"].size() == 2);
     }
     std::filesystem::remove(path);
   }
