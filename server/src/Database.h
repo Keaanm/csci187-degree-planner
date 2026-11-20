@@ -43,6 +43,13 @@ struct SavedPlan {
   std::string lastSaved;
 };
 
+// A calendar day in the server's time zone, for deciding which quarters have ended.
+struct Date {
+  int year;
+  int month;  // 1 to 12
+  int day;
+};
+
 struct PlanRow {
   std::string code;
   int quarter;
@@ -90,6 +97,16 @@ class Database {
   // { "email", "startYear" }, or std::nullopt for an unknown id.
   std::optional<nlohmann::json> student(int studentId);
 
+  // Finished quarters. The last quarter (0 to 11) whose results the student confirmed, or
+  // std::nullopt if they haven't confirmed any.
+  std::optional<int> confirmedThrough(int studentId);
+  // Records that the student confirmed every quarter up to and including `quarter`, using
+  // planId's courses and results, and copies those quarters into the student's other plans.
+  // All or nothing. Throws NotFound if planId isn't the student's, and BadRequest if the
+  // quarter hasn't ended by `today`, a course in a confirmed quarter is still "planned", or
+  // another plan would then have a course again after passing it.
+  void confirmQuarters(int studentId, int planId, int quarter, const Date& today);
+
   // A negative lifetime makes a session that has already expired (used by the tests).
   void createSession(const std::string& token, int studentId, int lifetimeSeconds);
   // The logged-in student, or std::nullopt if the token is unknown or expired.
@@ -103,6 +120,7 @@ class Database {
   bool hasColumn(const std::string& table, const std::string& column);
 
   void createProgramTable();
+  void addStudentColumns();
   void addPlanColumns();
   void neverReusePlanIds();
   // Callers must hold mutex_.

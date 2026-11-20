@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <optional>
 #include <climits>
+#include <ctime>
 #include <iostream>
 
 #include "Auth.h"
@@ -189,6 +190,27 @@ int planIdFrom(const httplib::Request& req) {
   return std::stoi(digits);
 }
 
+// Today in the server's time zone, for deciding which quarters have ended.
+Date serverToday() {
+  std::time_t now = std::time(nullptr);
+  std::tm local{};
+#ifdef _WIN32
+  localtime_s(&local, &now);
+#else
+  localtime_r(&now, &local);
+#endif
+  return {local.tm_year + 1900, local.tm_mon + 1, local.tm_mday};
+}
+
+// GET /api/me's body: { email, startYear, confirmedThrough }.
+std::optional<json> meBody(Database& db, int studentId) {
+  auto student = db.student(studentId);
+  if (!student) return std::nullopt;
+  auto confirmed = db.confirmedThrough(studentId);
+  (*student)["confirmedThrough"] = confirmed ? json(*confirmed) : json(nullptr);
+  return student;
+}
+
 }  // namespace
 
 void registerRoutes(httplib::Server& server, Database& db) {
@@ -268,9 +290,38 @@ void registerRoutes(httplib::Server& server, Database& db) {
   server.Get("/api/me", [&db](const httplib::Request& req, httplib::Response& res) {
     int studentId;
     if (!currentStudent(db, req, res, studentId)) return;
-    auto student = db.student(studentId);
-    if (!student) return sendError(res, 401, "You need to log in");
-    sendJson(res, *student);
+    auto me = meBody(db, studentId);
+    if (!me) return sendError(res, 401, "You need to log in");
+    sendJson(res, *me);
+  });
+
+  // Finished quarters: confirms every quarter through confirmedThrough, using planId's
+  // courses and results, and copies those quarters into the student's other plans.
+  server.Patch("/api/me", [&db](const httplib::Request& req, httplib::Response& res) {
+    int studentId;
+    if (!currentStudent(db, req, res, studentId)) return;
+    try {
+      json body = parseObject(req);
+      if (!body.contains("confirmedThrough") || !body["confirmedThrough"].is_number_integer()) {
+        throw BadRequest("Body needs an integer \"confirmedThrough\"");
+      }
+      auto quarter = body["confirmedThrough"].get<std::int64_t>();
+      if (quarter < 0 || quarter > 11) throw BadRequest("\"confirmedThrough\" must be 0 to 11");
+      if (!body.contains("planId") || !body["planId"].is_number_integer()) {
+        throw BadRequest("Body needs an integer \"planId\"");
+      }
+      auto planId = body["planId"].get<std::int64_t>();
+      // An id too big for an int can't be a plan, the same as one that doesn't exist.
+      if (planId < 1 || planId > INT32_MAX) throw NotFound("Plan not found");
+      db.confirmQuarters(studentId, static_cast<int>(planId), static_cast<int>(quarter), serverToday());
+      auto me = meBody(db, studentId);
+      if (!me) return sendError(res, 401, "You need to log in");
+      sendJson(res, *me);
+    } catch (const BadRequest& e) {
+      sendError(res, 400, e.what());
+    } catch (const NotFound& e) {
+      sendError(res, 404, e.what());
+    }
   });
 
   // ---- Several plans ----

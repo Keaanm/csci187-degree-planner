@@ -575,6 +575,116 @@ int main() {
     CHECK(body(alice->Get("/api/me/plans")).size() == 1);
   }
 
+  // ---- Finished quarters ----
+  // PATCH /api/me confirms every quarter through confirmedThrough, using one plan's courses
+  // and results, and copies those quarters into the student's other plans.
+  {
+    auto patchMe = [&](httplib::Client& c, const json& b) { return c.Patch("/api/me", b.dump(), "application/json"); };
+    CHECK(status(client.Patch("/api/me", R"({"confirmedThrough": 0, "planId": 1})", "application/json")) == 401);
+
+    // Quinn started in Fall 2024, so Year 1 and Year 2 (quarters 0 to 5) have ended.
+    auto quinn = newStudent("quinn@scu.edu");
+    CHECK(body(quinn->Get("/api/me"))["confirmedThrough"].is_null());
+    const std::string mainUrl = mainPlanUrl(*quinn);
+    int mainId = body(quinn->Get(mainUrl))["planId"];
+    CHECK(status(quinn->Put(mainUrl, R"({"courses": [
+      {"code": "CSCI 10", "quarter": 0, "status": "completed"},
+      {"code": "MATH 11", "quarter": 0, "status": "failed"},
+      {"code": "CSCI 60", "quarter": 1, "status": "completed"},
+      {"code": "MATH 11", "quarter": 1, "status": "completed"},
+      {"code": "CSCI 61", "quarter": 4, "status": "planned"}
+    ]})", "application/json")) == 200);
+    json mainBefore = body(quinn->Get(mainUrl));
+
+    // A "what if" plan with a different past, and a later course of its own.
+    int abroadId = body(quinn->Post("/api/me/plans", R"({"name": "Abroad"})", "application/json")).value("planId", 0);
+    const std::string abroadUrl = "/api/me/plans/" + std::to_string(abroadId);
+    CHECK(status(quinn->Put(abroadUrl, R"({"courses": [
+      {"code": "CHEM 11", "quarter": 0, "status": "planned"},
+      {"code": "CSCI 60", "quarter": 1, "status": "planned"},
+      {"code": "CSCI 62", "quarter": 6, "status": "planned"}
+    ]})", "application/json")) == 200);
+    std::string abroadSaved = body(quinn->Get(abroadUrl))["lastSaved"];
+
+    // Bad bodies are 400s, and plans that aren't Quinn's are 404s. Nothing changes.
+    const json badBodies[] = {
+        json::object(),
+        {{"planId", mainId}},
+        {{"confirmedThrough", "1"}, {"planId", mainId}},
+        {{"confirmedThrough", nullptr}, {"planId", mainId}},
+        {{"confirmedThrough", 12}, {"planId", mainId}},
+        {{"confirmedThrough", -1}, {"planId", mainId}},
+        {{"confirmedThrough", 4294967296LL}, {"planId", mainId}},
+        {{"confirmedThrough", 1}},
+        {{"confirmedThrough", 1}, {"planId", std::to_string(mainId)}},
+    };
+    for (const auto& bad : badBodies) {
+      auto res = patchMe(*quinn, bad);
+      if (status(res) != 400) std::cerr << "Expected 400 for PATCH /api/me: " << bad.dump() << "\n";
+      CHECK(status(res) == 400);
+    }
+    CHECK(status(quinn->Patch("/api/me", json{{"confirmedThrough", 1}, {"planId", mainId}}.dump(), "text/plain")) == 400);
+    int alicesId = body(alice->Get("/api/me/plans"))[0]["planId"];
+    CHECK(status(patchMe(*quinn, {{"confirmedThrough", 1}, {"planId", alicesId}})) == 404);
+    CHECK(status(patchMe(*quinn, {{"confirmedThrough", 1}, {"planId", 99999}})) == 404);
+    CHECK(status(patchMe(*quinn, {{"confirmedThrough", 1}, {"planId", 2147483648LL}})) == 404);
+    CHECK(body(quinn->Get("/api/me"))["confirmedThrough"].is_null());
+    CHECK(body(quinn->Get(abroadUrl))["lastSaved"] == abroadSaved);
+
+    // Confirming through Year 1 Winter copies quarters 0 and 1, results and retakes included,
+    // into "Abroad", which keeps its own later courses. The main plan is unchanged.
+    auto confirmed = patchMe(*quinn, {{"confirmedThrough", 1}, {"planId", mainId}});
+    CHECK(status(confirmed) == 200);
+    CHECK(body(confirmed) == json({{"email", "quinn@scu.edu"}, {"startYear", 2024}, {"confirmedThrough", 1}}));
+    CHECK(body(quinn->Get("/api/me"))["confirmedThrough"] == 1);
+    json abroad = body(quinn->Get(abroadUrl));
+    CHECK(abroad["courses"] == json::parse(R"([
+      {"code": "CSCI 10", "quarter": 0, "status": "completed"},
+      {"code": "MATH 11", "quarter": 0, "status": "failed"},
+      {"code": "CSCI 60", "quarter": 1, "status": "completed"},
+      {"code": "MATH 11", "quarter": 1, "status": "completed"},
+      {"code": "CSCI 62", "quarter": 6, "status": "planned"}
+    ])"));
+    CHECK(abroad["lastSaved"] != abroadSaved);
+    CHECK(body(quinn->Get(mainUrl)) == mainBefore);
+    // Other students' plans and confirmations aren't touched.
+    CHECK(body(alice->Get("/api/me"))["confirmedThrough"].is_null());
+    CHECK(body(alice->Get(alicePlan))["courses"].size() == 5);
+
+    // Every course in a confirmed quarter needs a result: CSCI 61 in quarter 4 is still planned.
+    auto planned = patchMe(*quinn, {{"confirmedThrough", 4}, {"planId", mainId}});
+    CHECK(status(planned) == 400);
+    CHECK(body(planned)["error"] == "CSCI 61 in Year 2 Winter needs a result: completed or failed");
+    CHECK(body(quinn->Get("/api/me"))["confirmedThrough"] == 1);
+
+    // Passing CSCI 62 in Year 1 Spring would leave "Abroad" taking it again in Year 3 Fall,
+    // so nothing is confirmed or copied until that plan is changed.
+    json courses = mainBefore["courses"];
+    courses.push_back({{"code", "CSCI 62"}, {"quarter", 2}, {"status", "completed"}});
+    CHECK(status(quinn->Put(mainUrl, json{{"courses", courses}}.dump(), "application/json")) == 200);
+    auto conflict = patchMe(*quinn, {{"confirmedThrough", 2}, {"planId", mainId}});
+    CHECK(status(conflict) == 400);
+    CHECK(body(conflict)["error"] ==
+          "In \"Abroad\": CSCI 62 is in the plan more than once; only a failed attempt can be retaken");
+    CHECK(body(quinn->Get("/api/me"))["confirmedThrough"] == 1);
+    CHECK(body(quinn->Get(abroadUrl)) == abroad);
+
+    // Once "Abroad" drops it, the confirmation goes through.
+    CHECK(status(quinn->Put(abroadUrl, R"({"courses": []})", "application/json")) == 200);
+    CHECK(status(patchMe(*quinn, {{"confirmedThrough", 2}, {"planId", mainId}})) == 200);
+    CHECK(body(quinn->Get(abroadUrl))["courses"].size() == 5);
+
+    // A quarter that hasn't ended yet is a 400. Rex starts in 2100.
+    auto rex = std::make_unique<httplib::Client>("127.0.0.1", port);
+    auto signup = post(*rex, "/api/signup", {{"email", "rex@scu.edu"}, {"password", "correct horse"}, {"startYear", 2100}});
+    rex->set_default_headers({{"Cookie", sessionCookie(signup)}});
+    int rexPlan = body(rex->Get("/api/me/plans"))[0]["planId"];
+    auto early = patchMe(*rex, {{"confirmedThrough", 0}, {"planId", rexPlan}});
+    CHECK(status(early) == 400);
+    CHECK(body(early)["error"] == "Year 1 Fall hasn't ended yet");
+    CHECK(body(rex->Get("/api/me"))["confirmedThrough"].is_null());
+  }
+
   // GET /api/programs needs a login and lists every program in programs.json, by id.
   {
     CHECK(status(client.Get("/api/programs")) == 401);
@@ -665,10 +775,14 @@ int main() {
       CHECK(plans[0]["programId"] == nullptr);
       auto plan = migrated.planById(1, 7);
       CHECK(plan && (*plan)["courses"].size() == 1);
+      // confirmed_through is added too, empty for students from before it.
+      CHECK(!migrated.confirmedThrough(1));
+      CHECK(migrated.student(1).has_value());
     }
     {
       Database reopened(path.string());  // opening again doesn't add the columns twice
       CHECK(reopened.plans(1).size() == 1);
+      CHECK(!reopened.confirmedThrough(1));
     }
     std::filesystem::remove(path);
   }
@@ -891,6 +1005,38 @@ int main() {
       CHECK((*firstPlan(again, studentId))["courses"].size() == 2);
     }
     std::filesystem::remove(path);
+  }
+
+  // A quarter ends on Dec 15 (Fall), Mar 25 (Winter) or Jun 15 (Spring) of its school year,
+  // and can be confirmed from that day on.
+  {
+    Database dates(":memory:");
+    dates.seed(DEFAULT_DATA_DIR);
+    int studentId = dates.createStudent("sam@scu.edu", auth::hashPassword("correct horse"), 2025);
+    int planId = firstPlanId(dates, studentId);
+    auto canConfirm = [&](int quarter, Date today) {
+      try {
+        dates.confirmQuarters(studentId, planId, quarter, today);
+        return true;
+      } catch (const BadRequest&) {
+        return false;
+      }
+    };
+    CHECK(!canConfirm(0, {2025, 12, 14}));
+    CHECK(canConfirm(0, {2025, 12, 15}));  // Year 1 Fall: Fall 2025
+    CHECK(!canConfirm(1, {2026, 3, 24}));
+    CHECK(canConfirm(1, {2026, 3, 25}));  // Year 1 Winter: Winter 2026
+    CHECK(!canConfirm(2, {2026, 6, 14}));
+    CHECK(canConfirm(2, {2026, 6, 15}));  // Year 1 Spring
+    CHECK(!canConfirm(3, {2026, 6, 16}));  // Year 2 Fall hasn't started
+    CHECK(canConfirm(3, {2026, 12, 15}));
+    CHECK(!canConfirm(11, {2029, 6, 14}));
+    CHECK(canConfirm(11, {2029, 6, 15}));  // Year 4 Spring: Spring 2029
+    CHECK(dates.confirmedThrough(studentId) == 11);
+    CHECK(!canConfirm(5, {2026, 1, 1}));  // a 400 leaves the last confirmation as it was
+    CHECK(dates.confirmedThrough(studentId) == 11);
+    CHECK(canConfirm(2, {2030, 1, 1}));  // confirming an earlier quarter lowers it
+    CHECK(dates.confirmedThrough(studentId) == 2);
   }
 
   if (failures == 0) std::cout << "All API tests passed\n";
