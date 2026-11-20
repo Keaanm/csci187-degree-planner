@@ -64,7 +64,7 @@ A student logs in with their email and password. Signing up or logging in sets a
 
 Emails are trimmed and lowercased, so `Ana@SCU.edu` and `ana@scu.edu` are the same account. Passwords are hashed with argon2id (libsodium) and never stored or returned.
 
-Sign-up, login and `PUT` need `Content-Type: application/json` (**400** otherwise). A form on another site can only send form or plain-text bodies, so this stops it from logging a visitor into someone else's account.
+Sign-up, login and `PATCH /api/me` need `Content-Type: application/json` (**400** otherwise). A form on another site can only send form or plain-text bodies, so this stops it from logging a visitor into someone else's account.
 
 ### `POST /api/signup`
 
@@ -96,52 +96,33 @@ Ends the session and clears the cookie. Response **204** with no body, even when
 
 ### `GET /api/me`
 
-The logged-in student:
+The logged-in student. `confirmedThrough` is the last quarter (0 to 11) whose results the student has confirmed, or `null` (see `PATCH /api/me`).
 
 ```json
-{ "email": "ana@scu.edu", "startYear": 2025 }
+{ "email": "ana@scu.edu", "startYear": 2025, "confirmedThrough": 2 }
 ```
 
 **401** if not logged in or the session has expired. The frontend sends the student to the login page then.
 
-## `GET /api/me/plan`
+### `PATCH /api/me`
 
-The logged-in student's plan. There's no plan id in the URL, so a student can only reach their own plan. Quarters are numbered 0 to 11 (0 = Year 1 Fall, 11 = Year 4 Spring). `status` is `"planned"`, `"completed"` or `"failed"` (didn't pass or withdrew). A failed course counts toward nothing, and the same course can then be planned again in a later quarter, so a course is in a plan more than once when every earlier attempt is `"failed"`. Courses come back in the order they were added within each quarter.
-
-```json
-{
-  "planId": 1,
-  "lastSaved": "2026-10-30T20:00:00.000Z",
-  "courses": [
-    { "code": "CSCI 10", "quarter": 0, "status": "completed" },
-    { "code": "CSCI 60", "quarter": 1, "status": "planned" }
-  ]
-}
-```
-
-**404** if the student has never saved a plan. The frontend then starts with an empty plan. **401** if not logged in.
-
-## `PUT /api/me/plan`
-
-Saves the logged-in student's whole plan, replacing every course saved before. Creates the plan on the first save. **401** if not logged in.
-
-Request body:
+Finished quarters: records that the student confirmed every quarter up to and including `confirmedThrough`, using plan `planId`'s courses and their passed or failed results.
 
 ```json
-{
-  "courses": [
-    { "code": "CSCI 10", "quarter": 0, "status": "completed" }
-  ]
-}
+{ "confirmedThrough": 2, "planId": 3 }
 ```
 
-Response: the plan id and the new last-saved time (ISO 8601).
+The past is the same in every plan, so the server copies those quarters (courses and results, retakes included) into the student's other plans, replacing what they had there. Their later quarters are kept, and their `lastSaved` changes. The plan sent is unchanged. Response **200** with the same body as `GET /api/me`.
 
-```json
-{ "planId": 1, "lastSaved": "2026-10-30T21:00:00.000Z" }
-```
+All or nothing: on any error below, nothing is confirmed or copied.
 
-Return **400** if the body isn't in this shape. The frontend shows an error for any non-2xx response.
+- **400** if `confirmedThrough` isn't an integer from 0 to 11, or `planId` isn't an integer.
+- **400** `"Year 3 Fall hasn't ended yet"` for a quarter that hasn't ended. A quarter ends on Dec 15 (Fall), Mar 25 (Winter) or Jun 15 (Spring) of its school year (Year 1 is the school year starting in Fall of `startYear`), and can be confirmed from that day on, by the server's local date.
+- **400** `"CSCI 61 in Year 2 Winter needs a result: completed or failed"` if a course in a confirmed quarter is still `"planned"`.
+- **400** `"In \"Abroad\": CSCI 62 is in the plan more than once; only a failed attempt can be retaken"` if, after the copy, another plan would break the retake rule (for example, it plans a course again that the student has now passed). The student changes that plan first.
+- **404** if `planId` isn't one of the student's plans. **401** if not logged in.
+
+Confirming an earlier quarter than before is allowed, and lowers `confirmedThrough`.
 
 ## Several plans
 
@@ -175,9 +156,42 @@ Renames a plan or changes its emphasis. Body: `{ "name": "...", "programId": 2 }
 
 Deletes a plan and its courses. Response **204**. **400** `"You need at least one plan"` for the student's only plan. The frontend asks before deleting.
 
-### `GET` and `PUT /api/me/plans/:planId`
+### `GET /api/me/plans/:planId`
 
-Load and save one plan, with the same bodies and errors as `GET` and `PUT /api/me/plan`.
+One plan. Quarters are numbered 0 to 11 (0 = Year 1 Fall, 11 = Year 4 Spring). `status` is `"planned"`, `"completed"` or `"failed"` (didn't pass or withdrew). A failed course counts toward nothing, and the same course can then be planned again in a later quarter, so a course is in a plan more than once when every earlier attempt is `"failed"`. Courses come back in the order they were added within each quarter.
+
+```json
+{
+  "planId": 3,
+  "lastSaved": "2026-10-30T20:00:00.000Z",
+  "courses": [
+    { "code": "CSCI 10", "quarter": 0, "status": "completed" },
+    { "code": "CSCI 60", "quarter": 1, "status": "planned" }
+  ]
+}
+```
+
+### `PUT /api/me/plans/:planId`
+
+Saves the whole plan, replacing every course saved before.
+
+```json
+{
+  "courses": [
+    { "code": "CSCI 10", "quarter": 0, "status": "completed" }
+  ]
+}
+```
+
+Response: the plan id and the new last-saved time (ISO 8601).
+
+```json
+{ "planId": 3, "lastSaved": "2026-10-30T21:00:00.000Z" }
+```
+
+**400** if the body isn't in this shape. The frontend shows an error for any non-2xx response.
+
+`GET` and `PUT /api/me/plan` (a student's first plan, with no id in the URL) were removed once the frontend moved to these routes.
 
 ## `GET /api/programs`
 
@@ -202,17 +216,6 @@ These are the routes for the rest of the final project, agreed before anyone bui
 
 Schema changes must keep existing students and plans: add columns with `ALTER TABLE ... ADD COLUMN`, or copy into a new table and rename it. Don't drop a table that holds student data (the drop for pre-account plans was only safe because no student could reach them). Every route here needs a login (**401** without one), and a plan id that isn't one of the logged-in student's plans is a **404**, so a student can't find out which plan ids exist.
 
-### Several plans (due Sun Nov 15)
-
-The routes are built (see "Several plans" above), and the frontend uses them; it no longer calls `/api/me/plan`, so that route can be removed. Sign-up makes the first plan, "Main plan", and students who signed up before that (and never saved) get one when the server starts, so every student has at least one. The frontend still makes a "Main plan" itself if the list is ever empty. Still to do: remove `/api/me/plan` and move its tests to `/api/me/plans/:planId`.
-
-### Finished quarters (due Thu Nov 19)
-
-`GET /api/me` adds `confirmedThrough`: the last quarter (0 to 11) whose results the student has confirmed, or `null`.
-
-`PATCH /api/me` with `{ "confirmedThrough": 2, "planId": 3 }` records that the student confirmed every quarter up to and including that one, using plan 3's courses and passed/failed results. The past is the same in every plan, so the server copies those quarters (courses and results) into the student's other plans. **400** for a quarter that hasn't ended yet. A quarter ends on Dec 15 (Fall), Mar 25 (Winter) or Jun 15 (Spring) of its school year, using the server's date.
-
-
 ### Other credit (due Sun Nov 22)
 
 `GET /api/me/plans/:planId` adds `credits`, and `PUT` accepts it: units that aren't courses in our catalog. A `PUT` with `credits` replaces them all; a `PUT` without `credits` leaves them as they are.
@@ -232,7 +235,7 @@ The routes are built (see "Several plans" above), and the frontend uses them; it
 ## Tables (from the ER diagram)
 
 ```sql
-student             (student_id PK, email UNIQUE, password_hash, start_year)
+student             (student_id PK, email UNIQUE, password_hash, start_year, confirmed_through)
 session             (token PK, student_id, expires_at)            -- has
 course              (course_id PK, code UNIQUE, title, units, description)
 course_prerequisite (course_id, prerequisite_id, prereq_group)   -- requires
@@ -248,7 +251,7 @@ Differences from the ER diagram, in `server/src/Database.cpp`:
 - `position` keeps the order of courses within a requirement and within a plan's quarter.
 - Requirement ids are the requirement's position in `requirements.json`, starting at 1.
 - `expires_at` on `session` is Unix time in seconds. Expired sessions are deleted the next time anyone logs in or signs up.
-- `GET` and `PUT /api/me/plan` use the student's first plan (the oldest).
+- `student.confirmed_through` is the last confirmed quarter, or NULL. It was added with `ALTER TABLE`, so students from before it are kept, with nothing confirmed.
 - `degree_plan` also has `name` and `program_id` (the emphasis, or NULL). They were added with `ALTER TABLE`, so plans saved before them are kept and named "Main plan".
 - `degree_plan.plan_id` is `AUTOINCREMENT`, so a deleted plan's id is never reused. A browser that still has a deleted plan open can't save over a newer plan. Older databases are rebuilt on start, keeping every plan, its id and its courses.
 - Plans saved before accounts existed had no owner, so the server drops them the first time it starts with the new tables.

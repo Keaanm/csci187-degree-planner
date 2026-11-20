@@ -7,6 +7,7 @@
 #include <fstream>
 #include <map>
 #include <set>
+#include <tuple>
 
 #include <sqlite3.h>
 
@@ -99,6 +100,44 @@ std::string nowIso() {
   return out;
 }
 
+// A course can be in a plan more than once only if every attempt but the last is failed,
+// and each attempt is in a later quarter than the one before. Rows can be in any order.
+// (The frontend doesn't plan retakes yet; when it does, it should follow the same rule.)
+void checkAttempts(const std::vector<PlanRow>& rows, const std::string& errorPrefix = "") {
+  std::map<std::string, std::vector<const PlanRow*>> attempts;  // code -> its rows
+  for (const auto& row : rows) attempts[row.code].push_back(&row);
+  for (auto& [code, list] : attempts) {
+    std::stable_sort(list.begin(), list.end(),
+                     [](const PlanRow* a, const PlanRow* b) { return a->quarter < b->quarter; });
+    for (size_t i = 1; i < list.size(); ++i) {
+      if (list[i]->quarter == list[i - 1]->quarter) {
+        throw BadRequest(errorPrefix + code + " is in " + quarterLabel(list[i]->quarter) + " more than once");
+      }
+      if (list[i - 1]->status != "failed") {
+        throw BadRequest(errorPrefix + code +
+                         " is in the plan more than once; only a failed attempt can be retaken");
+      }
+    }
+  }
+}
+
+// The day a quarter ends, for a student who started in Fall of startYear: Dec 15 (Fall),
+// Mar 25 (Winter) or Jun 15 (Spring) of its school year.
+Date quarterEnd(int startYear, int quarter) {
+  int fallYear = startYear + quarter / 3;
+  switch (quarter % 3) {
+    case 0: return {fallYear, 12, 15};
+    case 1: return {fallYear + 1, 3, 25};
+    default: return {fallYear + 1, 6, 15};
+  }
+}
+
+// A quarter has ended from its last day on.
+bool hasEnded(int startYear, int quarter, const Date& today) {
+  Date end = quarterEnd(startYear, quarter);
+  return std::tie(today.year, today.month, today.day) >= std::tie(end.year, end.month, end.day);
+}
+
 }  // namespace
 
 Database::Database(const std::string& path) {
@@ -111,6 +150,15 @@ Database::Database(const std::string& path) {
   createTables();
   createProgramTable();
   addPlanColumns();
+  addStudentColumns();
+}
+
+// Finished quarters: the last quarter whose results the student confirmed, NULL until they
+// confirm one. Added with ALTER TABLE so existing students are kept.
+void Database::addStudentColumns() {
+  if (!hasColumn("student", "confirmed_through")) {
+    exec("ALTER TABLE student ADD COLUMN confirmed_through INTEGER CHECK (confirmed_through BETWEEN 0 AND 11)");
+  }
 }
 
 // Several plans: each has a name and the emphasis it follows (NULL until one is chosen).
@@ -256,8 +304,7 @@ void Database::createTables() {
       position       INTEGER NOT NULL,
       PRIMARY KEY (course_id, requirement_id)
     );
-    -- Not UNIQUE on student_id: the final ER diagram lets a student own several plans.
-    -- For now the API only uses each student's first plan (see Database::plan).
+    -- Not UNIQUE on student_id: a student can own several plans.
     -- AUTOINCREMENT so a deleted plan's id is never given to a new plan (see
     -- neverReusePlanIds).
     CREATE TABLE IF NOT EXISTS degree_plan (
@@ -496,20 +543,6 @@ json Database::programs() {
   return result;
 }
 
-std::optional<int> Database::firstPlanId(int studentId) {
-  Statement find(db_, "SELECT plan_id FROM degree_plan WHERE student_id = ? ORDER BY plan_id LIMIT 1");
-  find.bind(1, studentId);
-  if (!find.step()) return std::nullopt;
-  return find.intAt(0);
-}
-
-std::optional<json> Database::plan(int studentId) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  auto planId = firstPlanId(studentId);
-  if (!planId) return std::nullopt;
-  return planWithCourses(*planId);
-}
-
 std::optional<json> Database::planById(int studentId, int planId) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!ownsPlan(studentId, planId)) return std::nullopt;
@@ -631,16 +664,14 @@ void Database::deletePlan(int studentId, int planId) {
   remove.run();
 }
 
-SavedPlan Database::savePlan(int studentId, const std::vector<PlanRow>& rows, std::optional<int> targetPlan) {
+SavedPlan Database::savePlan(int studentId, int planId, const std::vector<PlanRow>& rows) {
   std::lock_guard<std::mutex> lock(mutex_);
 
   // Check every row before writing anything.
   std::vector<int> courseIds;
-  std::map<std::string, std::vector<const PlanRow*>> attempts;  // code -> its rows
   std::map<int, int> unitsInQuarter;
   Statement findCourse(db_, "SELECT course_id, units FROM course WHERE code = ?");
   for (const auto& row : rows) {
-    attempts[row.code].push_back(&row);
     findCourse.bind(1, row.code);
     if (!findCourse.step()) throw BadRequest(row.code + " is not an offered course");
     courseIds.push_back(findCourse.intAt(0));
@@ -650,39 +681,15 @@ SavedPlan Database::savePlan(int studentId, const std::vector<PlanRow>& rows, st
     }
     findCourse.reset();
   }
-  // A course can be in the plan more than once only if every attempt but the last is failed,
-  // and each attempt is in a later quarter than the one before. (The frontend doesn't plan
-  // retakes yet; when it does, it should follow the same rule.)
-  for (auto& [code, list] : attempts) {
-    std::stable_sort(list.begin(), list.end(),
-                     [](const PlanRow* a, const PlanRow* b) { return a->quarter < b->quarter; });
-    for (size_t i = 1; i < list.size(); ++i) {
-      if (list[i]->quarter == list[i - 1]->quarter) {
-        throw BadRequest(code + " is in " + quarterLabel(list[i]->quarter) + " more than once");
-      }
-      if (list[i - 1]->status != "failed") {
-        throw BadRequest(code + " is in the plan more than once; only a failed attempt can be retaken");
-      }
-    }
-  }
+  checkAttempts(rows);
 
   std::string lastSaved = nowIso();
-  int planId;
   exec("BEGIN");
   try {
-    // The plan asked for, or else the student's first plan, created on their first save.
-    if (targetPlan && !ownsPlan(studentId, *targetPlan)) throw NotFound("Plan not found");
-    if (auto existing = targetPlan ? targetPlan : firstPlanId(studentId)) {
-      planId = *existing;
-      Statement touch(db_, "UPDATE degree_plan SET last_saved = ? WHERE plan_id = ?");
-      touch.bind(1, lastSaved).bind(2, planId);
-      touch.run();
-    } else {
-      Statement create(db_, "INSERT INTO degree_plan (student_id, last_saved) VALUES (?, ?)");
-      create.bind(1, studentId).bind(2, lastSaved);
-      create.run();
-      planId = static_cast<int>(sqlite3_last_insert_rowid(db_));
-    }
+    if (!ownsPlan(studentId, planId)) throw NotFound("Plan not found");
+    Statement touch(db_, "UPDATE degree_plan SET last_saved = ? WHERE plan_id = ?");
+    touch.bind(1, lastSaved).bind(2, planId);
+    touch.run();
 
     Statement clear(db_, "DELETE FROM plan_course WHERE plan_id = ?");
     clear.bind(1, planId);
@@ -741,6 +748,82 @@ std::optional<json> Database::student(int studentId) {
   find.bind(1, studentId);
   if (!find.step()) return std::nullopt;
   return json{{"email", find.textAt(0)}, {"startYear", find.intAt(1)}};
+}
+
+std::optional<int> Database::confirmedThrough(int studentId) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  Statement find(db_, "SELECT confirmed_through FROM student WHERE student_id = ?");
+  find.bind(1, studentId);
+  if (!find.step() || find.isNull(0)) return std::nullopt;
+  return find.intAt(0);
+}
+
+void Database::confirmQuarters(int studentId, int planId, int quarter, const Date& today) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!ownsPlan(studentId, planId)) throw NotFound("Plan not found");
+
+  Statement findYear(db_, "SELECT start_year FROM student WHERE student_id = ?");
+  findYear.bind(1, studentId);
+  if (!findYear.step()) throw NotFound("Plan not found");
+  if (!hasEnded(findYear.intAt(0), quarter, today)) throw BadRequest(quarterLabel(quarter) + " hasn't ended yet");
+
+  // The plan's courses in the quarters being confirmed. Each needs a result.
+  auto rowsOf = [&](int id, const char* quarters) {
+    Statement rows(db_, std::string(R"sql(
+      SELECT c.code, pc.quarter, pc.status FROM plan_course pc
+      JOIN course c ON c.course_id = pc.course_id
+      WHERE pc.plan_id = ? AND pc.quarter )sql") + quarters + " ? ORDER BY pc.quarter, pc.position");
+    rows.bind(1, id).bind(2, quarter);
+    std::vector<PlanRow> result;
+    while (rows.step()) result.push_back({rows.textAt(0), rows.intAt(1), rows.textAt(2)});
+    return result;
+  };
+  std::vector<PlanRow> past = rowsOf(planId, "<=");
+  for (const auto& row : past) {
+    if (row.status == "planned") {
+      throw BadRequest(row.code + " in " + quarterLabel(row.quarter) + " needs a result: completed or failed");
+    }
+  }
+
+  // Every other plan gets these quarters in place of its own. Its later quarters stay, so
+  // check that they still follow the retake rule before changing anything.
+  std::vector<int> others;
+  {
+    Statement all(db_, "SELECT plan_id, name FROM degree_plan WHERE student_id = ? AND plan_id <> ? ORDER BY plan_id");
+    all.bind(1, studentId).bind(2, planId);
+    while (all.step()) {
+      std::vector<PlanRow> merged = past;
+      for (auto& row : rowsOf(all.intAt(0), ">")) merged.push_back(row);
+      checkAttempts(merged, "In \"" + all.textAt(1) + "\": ");
+      others.push_back(all.intAt(0));
+    }
+  }
+
+  std::string lastSaved = nowIso();
+  exec("BEGIN");
+  try {
+    Statement clear(db_, "DELETE FROM plan_course WHERE plan_id = ? AND quarter <= ?");
+    Statement copy(db_, R"sql(
+      INSERT INTO plan_course (plan_id, course_id, quarter, status, position)
+        SELECT ?, course_id, quarter, status, position FROM plan_course
+        WHERE plan_id = ? AND quarter <= ?)sql");
+    Statement touch(db_, "UPDATE degree_plan SET last_saved = ? WHERE plan_id = ?");
+    for (int other : others) {
+      clear.bind(1, other).bind(2, quarter);
+      clear.run();
+      copy.bind(1, other).bind(2, planId).bind(3, quarter);
+      copy.run();
+      touch.bind(1, lastSaved).bind(2, other);
+      touch.run();
+    }
+    Statement confirm(db_, "UPDATE student SET confirmed_through = ? WHERE student_id = ?");
+    confirm.bind(1, quarter).bind(2, studentId);
+    confirm.run();
+    exec("COMMIT");
+  } catch (...) {
+    exec("ROLLBACK");
+    throw;
+  }
 }
 
 void Database::createSession(const std::string& token, int studentId, int lifetimeSeconds) {

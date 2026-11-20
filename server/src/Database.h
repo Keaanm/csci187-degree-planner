@@ -43,6 +43,13 @@ struct SavedPlan {
   std::string lastSaved;
 };
 
+// A calendar day in the server's time zone, for deciding which quarters have ended.
+struct Date {
+  int year;
+  int month;  // 1 to 12
+  int day;
+};
+
 struct PlanRow {
   std::string code;
   int quarter;
@@ -67,11 +74,8 @@ class Database {
   nlohmann::json requirements();
   // Every program (the major, its emphases, the University Core), by id.
   nlohmann::json programs();
-  // The student's plan, or std::nullopt if they have never saved one.
-  std::optional<nlohmann::json> plan(int studentId);
-  // Replaces every course in the student's plan, creating the plan on the first save.
-  // With targetPlan, saves that plan instead, and throws NotFound if it isn't the student's.
-  SavedPlan savePlan(int studentId, const std::vector<PlanRow>& rows, std::optional<int> targetPlan = std::nullopt);
+  // Replaces every course in one of the student's plans. Throws NotFound if it isn't theirs.
+  SavedPlan savePlan(int studentId, int planId, const std::vector<PlanRow>& rows);
 
   // Several plans. Every method throws NotFound for a plan id that isn't the student's,
   // and BadRequest for a program id that isn't an emphasis.
@@ -83,7 +87,7 @@ class Database {
   nlohmann::json updatePlan(int studentId, int planId, const PlanChanges& changes);
   // Throws BadRequest for the student's only plan.
   void deletePlan(int studentId, int planId);
-  // { planId, lastSaved, courses }, like plan(), or std::nullopt if it isn't the student's.
+  // { planId, lastSaved, courses }, or std::nullopt if it isn't the student's.
   std::optional<nlohmann::json> planById(int studentId, int planId);
 
   // email should already be trimmed and lowercased. Throws EmailTaken. Returns the new id.
@@ -92,6 +96,16 @@ class Database {
   std::optional<StudentLogin> findStudentByEmail(const std::string& email);
   // { "email", "startYear" }, or std::nullopt for an unknown id.
   std::optional<nlohmann::json> student(int studentId);
+
+  // Finished quarters. The last quarter (0 to 11) whose results the student confirmed, or
+  // std::nullopt if they haven't confirmed any.
+  std::optional<int> confirmedThrough(int studentId);
+  // Records that the student confirmed every quarter up to and including `quarter`, using
+  // planId's courses and results, and copies those quarters into the student's other plans.
+  // All or nothing. Throws NotFound if planId isn't the student's, and BadRequest if the
+  // quarter hasn't ended by `today`, a course in a confirmed quarter is still "planned", or
+  // another plan would then have a course again after passing it.
+  void confirmQuarters(int studentId, int planId, int quarter, const Date& today);
 
   // A negative lifetime makes a session that has already expired (used by the tests).
   void createSession(const std::string& token, int studentId, int lifetimeSeconds);
@@ -104,10 +118,9 @@ class Database {
   void createTables();
   void createPlanCourse(const std::string& table);
   bool hasColumn(const std::string& table, const std::string& column);
-  // Callers must hold mutex_.
-  std::optional<int> firstPlanId(int studentId);
 
   void createProgramTable();
+  void addStudentColumns();
   void addPlanColumns();
   void neverReusePlanIds();
   // Callers must hold mutex_.
