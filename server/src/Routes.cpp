@@ -130,8 +130,57 @@ constexpr size_t kMinPasswordLength = 8;
 // Long enough for any real password; stops someone sending megabytes to hash.
 constexpr size_t kMaxPasswordLength = 256;
 
-// Checks the PUT body shape: { "courses": [ { code, quarter 0-11, status } ] }.
-std::vector<PlanRow> parsePlanBody(const std::string& body) {
+constexpr size_t kMaxCreditDescriptionLength = 100;
+// More than any student needs; stops someone saving thousands of rows.
+constexpr size_t kMaxCredits = 100;
+
+// One credit: { kind, description, units 1-60, requirementId (an id or null, optional) }.
+PlanCredit parseCredit(const json& c) {
+  if (!c.is_object()) throw BadRequest("Each credit must be an object");
+  if (!c.contains("kind") || !c["kind"].is_string()) throw BadRequest("Each credit needs a string \"kind\"");
+  std::string kind = c["kind"];
+  if (kind != "core" && kind != "elective" && kind != "ap" && kind != "transfer" && kind != "abroad") {
+    throw BadRequest("\"kind\" must be \"core\", \"elective\", \"ap\", \"transfer\" or \"abroad\"");
+  }
+
+  if (!c.contains("description") || !c["description"].is_string()) {
+    throw BadRequest("Each credit needs a string \"description\"");
+  }
+  std::string description = c["description"];
+  auto notSpace = [](unsigned char ch) { return !std::isspace(ch); };
+  description.erase(description.begin(), std::find_if(description.begin(), description.end(), notSpace));
+  description.erase(std::find_if(description.rbegin(), description.rend(), notSpace).base(), description.end());
+  if (description.empty()) throw BadRequest("A credit's \"description\" can't be empty");
+  size_t characters =
+      std::count_if(description.begin(), description.end(), [](unsigned char ch) { return (ch & 0xC0) != 0x80; });
+  if (characters > kMaxCreditDescriptionLength) {
+    throw BadRequest("A credit's \"description\" must be at most " + std::to_string(kMaxCreditDescriptionLength) +
+                     " characters");
+  }
+
+  if (!c.contains("units") || !c["units"].is_number_integer()) throw BadRequest("Each credit needs an integer \"units\"");
+  // Check the range before narrowing to int, so 4294967297 isn't read as 1.
+  auto units = c["units"].get<std::int64_t>();
+  if (units < 1 || units > 60) throw BadRequest("A credit's \"units\" must be 1 to 60");
+
+  std::optional<int> requirementId;
+  if (c.contains("requirementId") && !c["requirementId"].is_null()) {
+    if (!c["requirementId"].is_number_integer()) throw BadRequest("\"requirementId\" must be an integer or null");
+    auto id = c["requirementId"].get<std::int64_t>();
+    if (id < 1 || id > INT32_MAX) throw BadRequest("Requirement " + std::to_string(id) + " doesn't exist");
+    requirementId = static_cast<int>(id);
+  }
+  return {kind, description, static_cast<int>(units), requirementId};
+}
+
+struct PlanBody {
+  std::vector<PlanRow> courses;
+  std::optional<std::vector<PlanCredit>> credits;  // std::nullopt keeps the saved credits
+};
+
+// Checks the PUT body shape: { "courses": [ { code, quarter 0-11, status } ], "credits": [...] },
+// where "credits" is optional.
+PlanBody parsePlanBody(const std::string& body) {
   json parsed = json::parse(body, nullptr, false);
   if (parsed.is_discarded() || !parsed.is_object()) throw BadRequest("Body must be a JSON object");
   if (!parsed.contains("courses") || !parsed["courses"].is_array()) {
@@ -154,7 +203,17 @@ std::vector<PlanRow> parsePlanBody(const std::string& body) {
     }
     rows.push_back(row);
   }
-  return rows;
+
+  std::optional<std::vector<PlanCredit>> credits;
+  if (parsed.contains("credits")) {
+    if (!parsed["credits"].is_array()) throw BadRequest("\"credits\" must be an array");
+    if (parsed["credits"].size() > kMaxCredits) {
+      throw BadRequest("A plan can have at most " + std::to_string(kMaxCredits) + " credits");
+    }
+    credits.emplace();
+    for (const auto& c : parsed["credits"]) credits->push_back(parseCredit(c));
+  }
+  return {rows, credits};
 }
 
 constexpr size_t kMaxPlanNameLength = 60;
@@ -411,7 +470,8 @@ void registerRoutes(httplib::Server& server, Database& db) {
     try {
       int planId = planIdFrom(req);
       requireJson(req);
-      SavedPlan saved = db.savePlan(studentId, planId, parsePlanBody(req.body));
+      PlanBody body = parsePlanBody(req.body);
+      SavedPlan saved = db.savePlan(studentId, planId, body.courses, body.credits);
       sendJson(res, {{"planId", saved.planId}, {"lastSaved", saved.lastSaved}});
     } catch (const BadRequest& e) {
       sendError(res, 400, e.what());

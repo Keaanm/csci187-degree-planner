@@ -50,6 +50,15 @@ struct Date {
   int day;
 };
 
+// One unit of other credit on a plan: AP, transfer, study abroad, or Core/elective units
+// that aren't courses in our catalog.
+struct PlanCredit {
+  std::string kind;  // "core", "elective", "ap", "transfer" or "abroad"
+  std::string description;
+  int units;  // 1 to 60
+  std::optional<int> requirementId;  // the requirement it counts toward, if any
+};
+
 struct PlanRow {
   std::string code;
   int quarter;
@@ -75,19 +84,23 @@ class Database {
   // Every program (the major, its emphases, the University Core), by id.
   nlohmann::json programs();
   // Replaces every course in one of the student's plans. Throws NotFound if it isn't theirs.
-  SavedPlan savePlan(int studentId, int planId, const std::vector<PlanRow>& rows);
+  // With credits, also replaces all of the plan's other credit; without, leaves it as it is.
+  // Throws BadRequest for a credit whose requirementId isn't a requirement.
+  SavedPlan savePlan(int studentId, int planId, const std::vector<PlanRow>& rows,
+                     const std::optional<std::vector<PlanCredit>>& credits = std::nullopt);
 
   // Several plans. Every method throws NotFound for a plan id that isn't the student's,
   // and BadRequest for a program id that isn't an emphasis.
   // The student's plans, oldest first: { planId, name, programId, lastSaved, shared }.
   nlohmann::json plans(int studentId);
-  // A new plan, empty or with copyFrom's courses. Returns it in the same shape as plans().
+  // A new plan, empty or with copyFrom's courses and other credit. Returns it in the same
+  // shape as plans().
   nlohmann::json createPlan(int studentId, const std::string& name, std::optional<int> programId,
                             std::optional<int> copyFrom);
   nlohmann::json updatePlan(int studentId, int planId, const PlanChanges& changes);
   // Throws BadRequest for the student's only plan.
   void deletePlan(int studentId, int planId);
-  // { planId, lastSaved, courses }, or std::nullopt if it isn't the student's.
+  // { planId, lastSaved, courses, credits }, or std::nullopt if it isn't the student's.
   std::optional<nlohmann::json> planById(int studentId, int planId);
 
   // email should already be trimmed and lowercased. Throws EmailTaken. Returns the new id.
@@ -121,6 +134,7 @@ class Database {
 
   void createProgramTable();
   void addStudentColumns();
+  void createCreditTable();
   void addPlanColumns();
   void neverReusePlanIds();
   // Callers must hold mutex_.
