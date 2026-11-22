@@ -140,7 +140,7 @@ A plan saved before several plans existed is named "Main plan", with `programId:
 
 ### `POST /api/me/plans`
 
-Creates a plan. `programId` and `copyFrom` are optional. With `copyFrom`, the new plan starts with a copy of that plan's courses.
+Creates a plan. `programId` and `copyFrom` are optional. With `copyFrom`, the new plan starts with a copy of that plan's courses and other credit.
 
 ```json
 { "name": "What if I study abroad", "programId": 2, "copyFrom": 3 }
@@ -167,18 +167,26 @@ One plan. Quarters are numbered 0 to 11 (0 = Year 1 Fall, 11 = Year 4 Spring). `
   "courses": [
     { "code": "CSCI 10", "quarter": 0, "status": "completed" },
     { "code": "CSCI 60", "quarter": 1, "status": "planned" }
+  ],
+  "credits": [
+    { "kind": "ap", "description": "AP Calculus BC", "units": 8, "requirementId": 2 }
   ]
 }
 ```
 
+`credits` is the plan's other credit: units that aren't courses in our catalog, in the order they were saved (see "Other credit" below). It's `[]` until some are saved.
+
 ### `PUT /api/me/plans/:planId`
 
-Saves the whole plan, replacing every course saved before.
+Saves the whole plan, replacing every course saved before. `credits` is optional: with it, the plan's other credit is replaced too (`[]` removes it all); without it, the saved credits stay as they are. The app doesn't send credits yet, so saving courses never loses them.
 
 ```json
 {
   "courses": [
     { "code": "CSCI 10", "quarter": 0, "status": "completed" }
+  ],
+  "credits": [
+    { "kind": "ap", "description": "AP Calculus BC", "units": 8, "requirementId": 2 }
   ]
 }
 ```
@@ -190,6 +198,19 @@ Response: the plan id and the new last-saved time (ISO 8601).
 ```
 
 **400** if the body isn't in this shape. The frontend shows an error for any non-2xx response.
+
+A rejected `PUT` saves nothing, neither courses nor credits.
+
+#### Other credit
+
+Each credit is:
+
+- `kind`: `"core"`, `"elective"`, `"ap"`, `"transfer"` or `"abroad"`.
+- `description`: what it is, like "AP Calculus BC". Trimmed, 1 to 100 characters.
+- `units`: an integer from 1 to 60.
+- `requirementId`: the requirement it counts toward (an id from `GET /api/requirements`), or `null`. It can be left out, which means `null`.
+
+**400** for any credit not in this shape, a `requirementId` that isn't a requirement, or more than 100 credits. Each credit counts as one course toward its requirement, so one credit meets a Core area. A Pathway also needs its credits to add up to its `units`. Counting credits toward requirements and the 175 units is up to the frontend.
 
 `GET` and `PUT /api/me/plan` (a student's first plan, with no id in the URL) were removed once the frontend moved to these routes.
 
@@ -216,16 +237,6 @@ These are the routes for the rest of the final project, agreed before anyone bui
 
 Schema changes must keep existing students and plans: add columns with `ALTER TABLE ... ADD COLUMN`, or copy into a new table and rename it. Don't drop a table that holds student data (the drop for pre-account plans was only safe because no student could reach them). Every route here needs a login (**401** without one), and a plan id that isn't one of the logged-in student's plans is a **404**, so a student can't find out which plan ids exist.
 
-### Other credit (due Sun Nov 22)
-
-`GET /api/me/plans/:planId` adds `credits`, and `PUT` accepts it: units that aren't courses in our catalog. A `PUT` with `credits` replaces them all; a `PUT` without `credits` leaves them as they are.
-
-```json
-{ "credits": [{ "kind": "ap", "description": "AP Calculus BC", "units": 8, "requirementId": null }] }
-```
-
-`kind` is `"core"`, `"elective"`, `"ap"`, `"transfer"` or `"abroad"`. `requirementId` is the requirement it counts toward, or `null`. **400** for units that aren't 1 to 60. Each credit counts as one course toward its requirement, so one credit meets a Core area. A Pathway also needs its credits to add up to its `units`.
-
 ### Share link (due Sun Nov 22)
 
 `POST /api/me/plans/:planId/share` turns on a read-only link and returns `{ "shareToken": "<64 hex characters>" }`. Calling it again returns the same token. `DELETE` on the same route turns the link off (**204**), and the old link stops working.
@@ -244,6 +255,7 @@ program             (program_id PK, name, kind)
 course_requirement  (course_id, requirement_id, position)        -- satisfies
 degree_plan         (plan_id PK, student_id, last_saved)     -- owns
 plan_course         (plan_id, course_id, quarter, status, position) -- contains; PK (plan_id, course_id, quarter)
+plan_credit         (credit_id PK, plan_id, kind, description, units, requirement_id, position) -- includes
 ```
 
 Differences from the ER diagram, in `server/src/Database.cpp`:
@@ -254,6 +266,7 @@ Differences from the ER diagram, in `server/src/Database.cpp`:
 - `student.confirmed_through` is the last confirmed quarter, or NULL. It was added with `ALTER TABLE`, so students from before it are kept, with nothing confirmed.
 - `degree_plan` also has `name` and `program_id` (the emphasis, or NULL). They were added with `ALTER TABLE`, so plans saved before them are kept and named "Main plan".
 - `degree_plan.plan_id` is `AUTOINCREMENT`, so a deleted plan's id is never reused. A browser that still has a deleted plan open can't save over a newer plan. Older databases are rebuilt on start, keeping every plan, its id and its courses.
+- `plan_credit` is the ER diagram's OtherCredit, kept per plan so "what if" plans can differ. `requirement_id` has no foreign key, because the server reloads `degree_requirement` on every start; `PUT` checks that it exists instead. Requirement ids only stay the same if new requirements are added at the end of `requirements.json`. `position` keeps the order credits were saved in. Deleting a plan deletes its credits.
 - Plans saved before accounts existed had no owner, so the server drops them the first time it starts with the new tables.
 - `PUT` also returns **400** for a course that isn't offered, a quarter over 18 units, a course listed twice in the same quarter, or a course listed more than once where an earlier attempt isn't `"failed"`. Rows can be in any order. A failed course still counts toward its quarter's 18 units.
 - Before retakes, `plan_course` was keyed by (`plan_id, course_id`) and had no `"failed"` status. The server rebuilds an old table on start with a copy, keeping every saved row.

@@ -575,6 +575,117 @@ int main() {
     CHECK(body(alice->Get("/api/me/plans")).size() == 1);
   }
 
+  // ---- Other credit ----
+  // GET /api/me/plans/:planId includes "credits", and PUT replaces them when it sends
+  // "credits" and leaves them when it doesn't.
+  {
+    auto rosa = newStudent("rosa@scu.edu");
+    auto url = [](int id) { return "/api/me/plans/" + std::to_string(id); };
+    auto putJson = [&](httplib::Client& c, int id, const json& b) { return c.Put(url(id), b.dump(), "application/json"); };
+    int planId = body(rosa->Get("/api/me/plans"))[0].value("planId", 0);
+    json courses = json::parse(R"([{"code": "CSCI 10", "quarter": 0, "status": "completed"}])");
+
+    // A new plan has no credits.
+    CHECK(body(rosa->Get(url(planId)))["credits"] == json::array());
+
+    // Saved credits come back in the order they were sent. requirementId is optional and
+    // defaults to null; descriptions are trimmed.
+    json credits = json::parse(R"([
+      {"kind": "ap", "description": "AP Calculus BC", "units": 8, "requirementId": 2},
+      {"kind": "transfer", "description": "  English 1A at De Anza  ", "units": 4},
+      {"kind": "abroad", "description": "Semester in Rome", "units": 12, "requirementId": null},
+      {"kind": "core", "description": "Core: Cultures & Ideas", "units": 4, "requirementId": 3},
+      {"kind": "elective", "description": "Elective units", "units": 60, "requirementId": null}
+    ])");
+    CHECK(status(putJson(*rosa, planId, {{"courses", courses}, {"credits", credits}})) == 200);
+    json expected = json::parse(R"([
+      {"kind": "ap", "description": "AP Calculus BC", "units": 8, "requirementId": 2},
+      {"kind": "transfer", "description": "English 1A at De Anza", "units": 4, "requirementId": null},
+      {"kind": "abroad", "description": "Semester in Rome", "units": 12, "requirementId": null},
+      {"kind": "core", "description": "Core: Cultures & Ideas", "units": 4, "requirementId": 3},
+      {"kind": "elective", "description": "Elective units", "units": 60, "requirementId": null}
+    ])");
+    json saved = body(rosa->Get(url(planId)));
+    CHECK(saved["credits"] == expected);
+    CHECK(saved["courses"] == courses);
+
+    // A PUT without "credits" (what the app sends today) changes the courses and keeps them.
+    CHECK(status(putJson(*rosa, planId, {{"courses", json::array()}})) == 200);
+    saved = body(rosa->Get(url(planId)));
+    CHECK(saved["credits"] == expected);
+    CHECK(saved["courses"] == json::array());
+
+    // A copied plan gets the credits too; changing the copy's credits leaves the original's.
+    auto copy = rosa->Post("/api/me/plans", json{{"name", "What if"}, {"copyFrom", planId}}.dump(), "application/json");
+    CHECK(status(copy) == 201);
+    int copyId = body(copy).value("planId", 0);
+    CHECK(body(rosa->Get(url(copyId)))["credits"] == expected);
+    json one = json::parse(R"([{"kind": "ap", "description": "AP Physics C", "units": 4}])");
+    CHECK(status(putJson(*rosa, copyId, {{"courses", json::array()}, {"credits", one}})) == 200);
+    CHECK(body(rosa->Get(url(copyId)))["credits"].size() == 1);
+    CHECK(body(rosa->Get(url(planId)))["credits"] == expected);
+    // An empty plan doesn't copy anything.
+    auto blank = rosa->Post("/api/me/plans", json{{"name", "Blank"}}.dump(), "application/json");
+    CHECK(body(rosa->Get(url(body(blank).value("planId", 0))))["credits"] == json::array());
+
+    // "credits": [] removes them all.
+    CHECK(status(putJson(*rosa, copyId, {{"courses", json::array()}, {"credits", json::array()}})) == 200);
+    CHECK(body(rosa->Get(url(copyId)))["credits"] == json::array());
+
+    // Bad credits are 400s, and a rejected save changes neither the credits nor the courses.
+    const char* bad[] = {
+        R"({"courses": [], "credits": "nope"})",
+        R"({"courses": [], "credits": null})",
+        R"({"courses": [], "credits": [5]})",
+        R"({"courses": [], "credits": [{"description": "x", "units": 4}]})",
+        R"({"courses": [], "credits": [{"kind": "AP", "description": "x", "units": 4}]})",
+        R"({"courses": [], "credits": [{"kind": "online", "description": "x", "units": 4}]})",
+        R"({"courses": [], "credits": [{"kind": "ap", "units": 4}]})",
+        R"({"courses": [], "credits": [{"kind": "ap", "description": "   ", "units": 4}]})",
+        R"({"courses": [], "credits": [{"kind": "ap", "description": 7, "units": 4}]})",
+        R"({"courses": [], "credits": [{"kind": "ap", "description": "x"}]})",
+        R"({"courses": [], "credits": [{"kind": "ap", "description": "x", "units": 0}]})",
+        R"({"courses": [], "credits": [{"kind": "ap", "description": "x", "units": 61}]})",
+        R"({"courses": [], "credits": [{"kind": "ap", "description": "x", "units": -4}]})",
+        R"({"courses": [], "credits": [{"kind": "ap", "description": "x", "units": 4.5}]})",
+        R"({"courses": [], "credits": [{"kind": "ap", "description": "x", "units": "4"}]})",
+        R"({"courses": [], "credits": [{"kind": "ap", "description": "x", "units": 4294967297}]})",
+        R"({"courses": [], "credits": [{"kind": "ap", "description": "x", "units": 4, "requirementId": "2"}]})",
+        R"({"courses": [], "credits": [{"kind": "ap", "description": "x", "units": 4, "requirementId": 99999}]})",
+        R"({"courses": [], "credits": [{"kind": "ap", "description": "x", "units": 4, "requirementId": 0}]})",
+        R"({"courses": [], "credits": [{"kind": "ap", "description": "x", "units": 4, "requirementId": 4294967298}]})",
+        R"({"credits": []})",
+    };
+    for (const char* badBody : bad) {
+      auto res = rosa->Put(url(planId), badBody, "application/json");
+      if (status(res) != 400) std::cerr << "Expected 400 for credits: " << badBody << "\n";
+      CHECK(status(res) == 400);
+    }
+    json longDescription = {{"kind", "ap"}, {"description", std::string(101, 'x')}, {"units", 4}};
+    CHECK(status(putJson(*rosa, planId, {{"courses", json::array()}, {"credits", {longDescription}}})) == 400);
+    longDescription["description"] = std::string(100, 'x');  // exactly 100 is fine (checked on the copy)
+    CHECK(status(putJson(*rosa, copyId, {{"courses", json::array()}, {"credits", {longDescription}}})) == 200);
+    json tooMany = json::array();
+    for (int i = 0; i < 101; ++i) tooMany.push_back({{"kind", "elective"}, {"description", "Units"}, {"units", 1}});
+    CHECK(status(putJson(*rosa, planId, {{"courses", json::array()}, {"credits", tooMany}})) == 400);
+    CHECK(body(rosa->Get(url(planId)))["credits"] == expected);
+
+    // A bad credit also rejects the courses sent with it.
+    json oneBad = json::parse(R"([{"kind": "ap", "description": "x", "units": 0}])");
+    CHECK(status(putJson(*rosa, planId, {{"courses", courses}, {"credits", oneBad}})) == 400);
+    CHECK(body(rosa->Get(url(planId)))["courses"] == json::array());
+
+    // Another student can't read or change them.
+    auto sam = newStudent("sam@scu.edu");
+    CHECK(status(sam->Get(url(planId))) == 404);
+    CHECK(status(putJson(*sam, planId, {{"courses", json::array()}, {"credits", json::array()}})) == 404);
+    CHECK(body(rosa->Get(url(planId)))["credits"] == expected);
+
+    // Deleting a plan deletes its credits with it.
+    CHECK(status(rosa->Delete(url(copyId))) == 204);
+    CHECK(status(rosa->Get(url(copyId))) == 404);
+  }
+
   // ---- Finished quarters ----
   // PATCH /api/me confirms every quarter through confirmedThrough, using one plan's courses
   // and results, and copies those quarters into the student's other plans.
@@ -731,7 +842,8 @@ int main() {
       first.seed(DEFAULT_DATA_DIR);
       int studentId = first.createStudent("carol@scu.edu", auth::hashPassword("correct horse"), 2024);
       first.createSession("carols-token", studentId, 60);
-      first.savePlan(studentId, firstPlanId(first, studentId), {{"CSCI 10", 0, "completed"}, {"CSCI 60", 1, "planned"}});
+      first.savePlan(studentId, firstPlanId(first, studentId), {{"CSCI 10", 0, "completed"}, {"CSCI 60", 1, "planned"}},
+                     std::vector<PlanCredit>{{"ap", "AP Calculus BC", 8, 2}});
     }
     Database second(path.string());
     second.seed(DEFAULT_DATA_DIR);
@@ -743,6 +855,10 @@ int main() {
     CHECK(plan && (*plan)["courses"] == json::parse(R"([
       {"code": "CSCI 10", "quarter": 0, "status": "completed"},
       {"code": "CSCI 60", "quarter": 1, "status": "planned"}
+    ])"));
+    // Its other credit too.
+    CHECK(plan && (*plan)["credits"] == json::parse(R"([
+      {"kind": "ap", "description": "AP Calculus BC", "units": 8, "requirementId": 2}
     ])"));
     std::filesystem::remove(path);
   }

@@ -151,6 +151,26 @@ Database::Database(const std::string& path) {
   createProgramTable();
   addPlanColumns();
   addStudentColumns();
+  createCreditTable();
+}
+
+// Other credit: units on a plan that aren't courses in our catalog. requirement_id has no
+// foreign key because seed() reloads degree_requirement on every start; savePlan checks it
+// instead. Requirement ids are their position in requirements.json, so they stay the same
+// as long as requirements are only added at the end of that file.
+void Database::createCreditTable() {
+  exec(R"sql(
+    CREATE TABLE IF NOT EXISTS plan_credit (
+      credit_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_id        INTEGER NOT NULL REFERENCES degree_plan(plan_id) ON DELETE CASCADE,
+      kind           TEXT NOT NULL CHECK (kind IN ('core', 'elective', 'ap', 'transfer', 'abroad')),
+      description    TEXT NOT NULL,
+      units          INTEGER NOT NULL CHECK (units BETWEEN 1 AND 60),
+      requirement_id INTEGER,
+      position       INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS plan_credit_plan ON plan_credit(plan_id);
+  )sql");
 }
 
 // Finished quarters: the last quarter whose results the student confirmed, NULL until they
@@ -553,7 +573,8 @@ json Database::planWithCourses(int planId) {
   Statement find(db_, "SELECT last_saved FROM degree_plan WHERE plan_id = ?");
   find.bind(1, planId);
   find.step();
-  json result = {{"planId", planId}, {"lastSaved", find.textAt(0)}, {"courses", json::array()}};
+  json result = {
+      {"planId", planId}, {"lastSaved", find.textAt(0)}, {"courses", json::array()}, {"credits", json::array()}};
 
   Statement rows(db_, R"sql(
     SELECT c.code, pc.quarter, pc.status FROM plan_course pc
@@ -563,6 +584,16 @@ json Database::planWithCourses(int planId) {
   while (rows.step()) {
     result["courses"].push_back(
         {{"code", rows.textAt(0)}, {"quarter", rows.intAt(1)}, {"status", rows.textAt(2)}});
+  }
+
+  Statement credits(db_, R"sql(
+    SELECT kind, description, units, requirement_id FROM plan_credit
+    WHERE plan_id = ? ORDER BY position)sql");
+  credits.bind(1, planId);
+  while (credits.step()) {
+    json requirementId = credits.isNull(3) ? json(nullptr) : json(credits.intAt(3));
+    result["credits"].push_back({{"kind", credits.textAt(0)}, {"description", credits.textAt(1)},
+                                 {"units", credits.intAt(2)}, {"requirementId", requirementId}});
   }
   return result;
 }
@@ -624,6 +655,11 @@ json Database::createPlan(int studentId, const std::string& name, std::optional<
           SELECT ?, course_id, quarter, status, position FROM plan_course WHERE plan_id = ?)sql");
       copy.bind(1, planId).bind(2, *copyFrom);
       copy.run();
+      Statement copyCredits(db_, R"sql(
+        INSERT INTO plan_credit (plan_id, kind, description, units, requirement_id, position)
+          SELECT ?, kind, description, units, requirement_id, position FROM plan_credit WHERE plan_id = ?)sql");
+      copyCredits.bind(1, planId).bind(2, *copyFrom);
+      copyCredits.run();
     }
     exec("COMMIT");
     return planSummary(planId);
@@ -664,7 +700,8 @@ void Database::deletePlan(int studentId, int planId) {
   remove.run();
 }
 
-SavedPlan Database::savePlan(int studentId, int planId, const std::vector<PlanRow>& rows) {
+SavedPlan Database::savePlan(int studentId, int planId, const std::vector<PlanRow>& rows,
+                             const std::optional<std::vector<PlanCredit>>& credits) {
   std::lock_guard<std::mutex> lock(mutex_);
 
   // Check every row before writing anything.
@@ -682,6 +719,17 @@ SavedPlan Database::savePlan(int studentId, int planId, const std::vector<PlanRo
     findCourse.reset();
   }
   checkAttempts(rows);
+  if (credits) {
+    Statement findRequirement(db_, "SELECT 1 FROM degree_requirement WHERE requirement_id = ?");
+    for (const auto& credit : *credits) {
+      if (!credit.requirementId) continue;
+      findRequirement.bind(1, *credit.requirementId);
+      if (!findRequirement.step()) {
+        throw BadRequest("Requirement " + std::to_string(*credit.requirementId) + " doesn't exist");
+      }
+      findRequirement.reset();
+    }
+  }
 
   std::string lastSaved = nowIso();
   exec("BEGIN");
@@ -701,6 +749,22 @@ SavedPlan Database::savePlan(int studentId, int planId, const std::vector<PlanRo
       insert.bind(1, planId).bind(2, courseIds[i]).bind(3, rows[i].quarter)
           .bind(4, rows[i].status).bind(5, static_cast<int>(i));
       insert.run();
+    }
+
+    if (credits) {
+      Statement clearCredits(db_, "DELETE FROM plan_credit WHERE plan_id = ?");
+      clearCredits.bind(1, planId);
+      clearCredits.run();
+      Statement insertCredit(db_, R"sql(
+        INSERT INTO plan_credit (plan_id, kind, description, units, requirement_id, position)
+        VALUES (?, ?, ?, ?, ?, ?))sql");
+      for (size_t i = 0; i < credits->size(); ++i) {
+        const PlanCredit& credit = (*credits)[i];
+        insertCredit.bind(1, planId).bind(2, credit.kind).bind(3, credit.description)
+            .bind(4, credit.units).bind(6, static_cast<int>(i));
+        if (credit.requirementId) insertCredit.bind(5, *credit.requirementId);  // left unbound, it's NULL
+        insertCredit.run();
+      }
     }
     exec("COMMIT");
   } catch (...) {
